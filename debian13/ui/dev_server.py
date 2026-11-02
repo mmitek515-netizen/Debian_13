@@ -20,6 +20,7 @@ API_PATHS = {
     ("GET", "/api/v1/events"),
     ("POST", "/api/v1/chat"),
     ("POST", "/api/v1/chat/stream"),
+    ("POST", "/api/v1/vision"),
     ("POST", "/api/v1/terminal"),
 }
 API_TASK_PATH = re.compile(
@@ -33,6 +34,7 @@ API_SESSION_PATH = re.compile(
 )
 API_STREAM_PATH = "/api/v1/chat/stream"
 MAX_PROXY_BODY_BYTES = 16_384
+MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
 MAX_PROXY_RESPONSE_BYTES = 1_048_576
 MAX_STREAM_SECONDS = 120
 STREAM_CHUNK_BYTES = 65_536
@@ -86,7 +88,8 @@ class UiHandler(SimpleHTTPRequestHandler):
                 except ValueError:
                     self._send_error_json(400, "Nieprawidłowy Content-Length.")
                     return
-                if length < 1 or length > MAX_PROXY_BODY_BYTES:
+                max_bytes = MAX_VISION_BODY_BYTES if path == "/api/v1/vision" else MAX_PROXY_BODY_BYTES
+                if length < 1 or length > max_bytes:
                     self._send_error_json(413, "Żądanie przekracza limit rozmiaru.")
                     return
                 body = self.rfile.read(length)
@@ -105,7 +108,8 @@ class UiHandler(SimpleHTTPRequestHandler):
                 headers["Authorization"] = "Bearer " + token
             if self.command == "POST" and body is not None:
                 headers["Content-Type"] = "application/json"
-            upstream_path = "/v1/integrations" if path == "/api/v1/integrations" else path
+            upstream_path = {"/api/v1/integrations": "/v1/integrations",
+                             "/api/v1/vision": "/v1/vision"}.get(path, path)
             connection.request(self.command, upstream_path, body=body, headers=headers)
             response = connection.getresponse()
             if (
