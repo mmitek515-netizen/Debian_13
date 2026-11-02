@@ -86,6 +86,8 @@ def validate_provider_url(value: str) -> str:
         allowed = True
     elif parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
         allowed = True
+    elif parsed.scheme == "http" and parsed.hostname == "ollama" and os.environ.get("DEBIAN13_ALLOW_INTERNAL_OLLAMA") == "1" and parsed.port == 11434:
+        allowed = True
     else:
         allowed = False
     if (
