@@ -41,6 +41,7 @@ services:
       MODEL_CHAT_URL: http://ollama:11434/v1/chat/completions
       MODEL_API_KEY: ollama-local-no-remote-secret
       MODEL_NAME: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      VISION_MODEL_NAME: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
       DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
 volumes:
   ollama-models:
