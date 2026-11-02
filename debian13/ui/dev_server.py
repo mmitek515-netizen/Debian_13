@@ -15,6 +15,7 @@ UI_DIRECTORY = Path(__file__).resolve().parent
 API_PATHS = {
     ("GET", "/api/v1/status"),
     ("GET", "/api/v1/agents"),
+    ("GET", "/api/v1/integrations"),
     ("GET", "/api/v1/tasks"),
     ("GET", "/api/v1/events"),
     ("POST", "/api/v1/chat"),
@@ -104,7 +105,8 @@ class UiHandler(SimpleHTTPRequestHandler):
                 headers["Authorization"] = "Bearer " + token
             if self.command == "POST" and body is not None:
                 headers["Content-Type"] = "application/json"
-            connection.request(self.command, path, body=body, headers=headers)
+            upstream_path = "/v1/integrations" if path == "/api/v1/integrations" else path
+            connection.request(self.command, upstream_path, body=body, headers=headers)
             response = connection.getresponse()
             if (
                 path == API_STREAM_PATH
