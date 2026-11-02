@@ -117,6 +117,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
   return Object.freeze({
     getStatus: () => request('status'),
     getAgents: () => request('agents'),
+    getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
     getTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}`),
     getEvents: () => request('events'),
@@ -454,6 +455,48 @@ async function loadAgents() {
   }
 }
 
+async function loadIntegrations() {
+  const list = document.getElementById('integration-list');
+  if (!list) return;
+  list.replaceChildren();
+  try {
+    const response = await api.getIntegrations();
+    if (!Array.isArray(response.integrations)) throw new ApiError('Nieprawidłowa odpowiedź integracji.');
+    const issueUrls = {
+      mcp: 'https://github.com/mmitek515-netizen/Debian_13/issues/4',
+      gpt_actions: 'https://github.com/mmitek515-netizen/Debian_13/issues/5',
+      codex: 'https://github.com/mmitek515-netizen/Debian_13/issues/3',
+    };
+    for (const item of response.integrations) {
+      const entry = document.createElement('li');
+      entry.className = 'agent-card';
+      const label = document.createElement('strong');
+      label.textContent = item.name;
+      const status = document.createElement('p');
+      status.className = 'agent-state';
+      status.textContent = item.connected === true
+        ? 'Połączenie potwierdzone'
+        : 'Niepołączono · ' + item.status;
+      const description = document.createElement('p');
+      description.className = 'agent-role';
+      description.textContent = item.description;
+      entry.append(label, status, description);
+      if (issueUrls[item.id]) {
+        const issue = document.createElement('a');
+        issue.href = issueUrls[item.id];
+        issue.target = '_blank';
+        issue.rel = 'noopener noreferrer';
+        issue.textContent = 'Zgłoszenie GitHub';
+        entry.append(issue);
+      }
+      list.append(entry);
+    }
+    setText('integration-error', '');
+  } catch (error) {
+    setText('integration-error', error.message);
+  }
+}
+
 async function loadTasks() {
   setText('tasks-count', 'Ładowanie…');
   setText('tasks-error', '');
@@ -565,7 +608,7 @@ async function cancelWorkTask(taskId, button) {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadStatus(), loadAgents(), loadTasks()]);
+  await Promise.all([loadStatus(), loadAgents(), loadIntegrations(), loadTasks()]);
 }
 
 async function loadHistory(sessionId) {
