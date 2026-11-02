@@ -6,7 +6,48 @@ z PR #97, commit
 [`664b7b6`](https://github.com/mmitek515-netizen/Bastilla_OS_2/commit/664b7b621c85b5e1a745a28c6845b67a33fc2e2c);
 ten etap nie kopiuje ani nie zmienia jego plików backendu.
 
-## Uruchomienie
+## Uruchomienie sesji AI w GitHub Codespaces (nowa, samodzielna ścieżka)
+
+Dla najnowszego serwera w `debian13/system/server.py` i interfejsu
+`debian13/ui` nie trzeba używać starego backendu z innego repo.
+Otwórz Codespace **dla gałęzi `migration/debian13-codespaces`** i
+wykonaj w terminalu repozytorium:
+
+```bash
+bash debian13/start-ai-session.sh
+```
+
+Jeżeli Codespaces otworzył katalog `debian13/` jako główny, użyj
+`bash start-ai-session.sh`. Skrypt generuje prywatny token
+operatora (jeśli nie jest już ustawiony), buduje API w Dockerze, uruchamia
+Ollamę i automatycznie pobiera `llama3.2-vision:11b`, następnie
+uruchamia prywatny serwer interfejsu na porcie `3000`.
+W Codespaces otwórz panel **Ports** i kliknij przekierowany **prywatny** port
+`3000`. Nie zmieniaj jego widoczności na publiczną.
+
+**Zasoby:** Ollama 11B Vision pobiera około 7,8 GB danych; zalecany jest
+serwer z odpowiednią pamięcią, najlepiej GPU z min. 8 GB VRAM. Mały Codespace
+może nie mieć zasobów do uruchomienia tego modelu. Serwer nie jest uruchomiony
+przez samo dodanie skryptu do repozytorium.
+
+**Inny provider AI:** aby użyć zewnętrznego OpenAI-compatible API zamiast
+lokalnej Ollamy, ustaw `MODEL_CHAT_URL` (pełny adres
+HTTPS `/v1/chat/completions`), `MODEL_API_KEY` i
+`MODEL_NAME` w prywatnych zmiennych środowiskowych Codespaces,
+a następnie wykonaj to samo polecenie. Nie wklejaj kluczy do GitHub Issues.
+Po stronie backendu obrazy wymagają dodatkowo `VISION_MODEL_NAME`
+wskazującego model obsługujący obrazy.
+
+**Obecne ograniczenia:** odpowiedzi tekstowe trafiają z prawdziwego endpointu
+modelu do GUI przez zgodny format SSE, ale kompletna odpowiedź pojawia się po
+inferencji (bez tokenowego streamingu). Historia nie jest utrwalana, a Work
+zwraca pustą listę, dopóki niezależny system kolejkowy nie zostanie wdrożony.
+Profile agentów nie są autonomicznymi workerami. Dostępność rzeczywistego
+modelu i inferencję Vision trzeba zweryfikować po uruchomieniu Codespace.
+
+## Alternatywna dokumentacja starszego prototypu GUI
+
+### Uruchomienie starego backendu demonstracyjnego
 
 Uruchom zgodny backend API na `127.0.0.1:8765` (źródło z powyższego commita
 udostępnia `python3 debian13/server.py`), a następnie z katalogu repozytorium:
