@@ -47,7 +47,81 @@ jobs:
         run: node --test debian13/ui/dev_server.test.mjs
       - name: Check private Codespaces AI launch script
         shell: bash
-        run: bash -n debian13/start-ai-session.sh
+        run: |
+          set -euo pipefail
+          bash -n debian13/start-ai-session.sh
+          bash -n debian13/start-local.sh
+          bash debian13/start-local.sh --check
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          conf = json.loads(Path(".devcontainer/devcontainer.json").read_text())
+          assert conf["workspaceFolder"] == "/workspaces/${localWorkspaceFolderBasename}"
+          assert conf["portsAttributes"]["3000"]["visibility"] == "private"
+          assert conf["portsAttributes"]["8765"]["visibility"] == "private"
+          names = ("Alex", "Aria", "Astyria", "Aurelius")
+          for name in names:
+              text = Path(f".github/agents/{name}.agent.md").read_text()
+              assert f"name: {name}" in text
+          print("PASS: root Codespaces config and four original agent profiles")
+          PY
+      - name: Start real API + GUI with one Python-only command (no Docker)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP_DIR="$(mktemp -d)"
+          export DEBIAN13_STATE_DIR="$TMP_DIR/state"
+          export WORKSPACE_DIR="$TMP_DIR/workspace"
+          export DEBIAN13_UI_PORT=3000
+          export DEBIAN13_API_PORT=8765
+          bash debian13/start-local.sh >"$TMP_DIR/launch.log" 2>&1 &
+          LAUNCH_PID=$!
+          trap 'kill "$LAUNCH_PID" 2>/dev/null || true; wait "$LAUNCH_PID" 2>/dev/null || true; cat "$TMP_DIR/launch.log"; rm -rf "$TMP_DIR"' EXIT
+          for attempt in $(seq 1 60); do
+            if python3 - <<'PY'
+          import urllib.request
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:3000/api/v1/status", timeout=.5) as r:
+                  assert r.status == 200
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then break; fi
+            if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+              echo "Local startup process exited prematurely" >&2; exit 1
+            fi
+            sleep .2
+          done
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+          base="http://127.0.0.1:3000"
+          page = urllib.request.urlopen(base+"/", timeout=3).read().decode()
+          assert 'id="chat-form"' in page
+          assert 'id="original-agent-list"' in page
+          data = json.load(urllib.request.urlopen(base+"/api/v1/original-agents", timeout=3))
+          assert {x["name"] for x in data["agents"]} == {"Alex","Aria","Astyria","Aurelius"}
+          assert not data["registryReachable"]
+          assert all(not x["workerVerified"] and not x["connected"] for x in data["agents"])
+          payload = json.dumps({"agent":"alex","kind":"development",
+              "title":"Start script smoke task", "description":"Persist a task without AI execution."}).encode()
+          request = urllib.request.Request(base+"/api/v1/tasks", data=payload,
+              headers={"Content-Type":"application/json"}, method="POST")
+          with urllib.request.urlopen(request,timeout=3) as response:
+              assert response.status == 201
+              saved = json.load(response)
+          assert saved["executionStarted"] is False
+          assert saved["task"]["status"] == "queued"
+          assert os.path.isfile(os.path.join(os.environ["WORKSPACE_DIR"],".debian13-work.sqlite3"))
+          request = urllib.request.Request(base+"/api/v1/chat/stream", data=json.dumps({
+              "agent":"alex","message":"test"}).encode(),
+              headers={"Content-Type":"application/json"}, method="POST")
+          try:
+              urllib.request.urlopen(request, timeout=3)
+              raise AssertionError("Must fail closed without real AI model")
+          except urllib.error.HTTPError as error:
+              assert error.code == 503
+          print("PASS: real one-command app, GUI, Work persistence, 4 original agent statuses, honest AI 503")
+          PY
       - name: Run UI and real backend together on loopback
         shell: bash
         env:
