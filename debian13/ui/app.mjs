@@ -124,6 +124,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
     cancelTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     chatStream,
+    vision: (agent, message, image) => post('vision', { profile: agent, message, image }),
     terminal: (command) => post('terminal', { command }),
   });
 }
@@ -747,10 +748,82 @@ function bindNavigation() {
   setMobileSidebar(false);
 }
 
+async function prepareVisionImage(file) {
+  if (!['image/jpeg', 'image/png'].includes(file?.type)) {
+    throw new ApiError('Vision obsługuje tylko obrazy JPEG i PNG.');
+  }
+  if (file.size > 8 * 1024 * 1024) {
+    throw new ApiError('Zdjęcie przekracza limit 8 MB. Wybierz mniejszy plik.');
+  }
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = () => reject(new ApiError('Nie można odczytać wybranego zdjęcia.'));
+      image.src = objectUrl;
+    });
+    const width = image.naturalWidth;
+    const height = image.naturalHeight;
+    if (!width || !height) throw new ApiError('Obraz nie zawiera poprawnych wymiarów.');
+    const scale = Math.min(1, 1280 / Math.max(width, height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new ApiError('Przeglądarka nie umożliwia przetworzenia zdjęcia.');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const uri = canvas.toDataURL('image/jpeg', 0.78);
+    const encoded = uri.split(',', 2)[1] ?? '';
+    if (!encoded || encoded.length > 4 * Math.ceil((2 * 1024 * 1024) / 3)) {
+      throw new ApiError('Obraz po przetworzeniu jest za duży. Wybierz mniejszy plik.');
+    }
+    return { mime_type: 'image/jpeg', base64: encoded };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 function bindChatForm() {
   const form = document.getElementById('chat-form');
   if (!form) return;
   const message = document.getElementById('chat-message');
+  const attachment = document.getElementById('chat-image');
+  const preview = document.getElementById('chat-image-preview');
+  const thumbnail = document.getElementById('chat-image-thumbnail');
+  const fileName = document.getElementById('chat-image-name');
+  let previewUrl = '';
+  let visionBusy = false;
+  const clearAttachment = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = '';
+    if (attachment) attachment.value = '';
+    if (thumbnail) thumbnail.removeAttribute('src');
+    if (preview) preview.hidden = true;
+  };
+  attachment?.addEventListener('change', () => {
+    clearAttachmentPreviewOnly();
+    const file = attachment.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+      setText('chat-feedback', 'Wybierz obraz JPEG/PNG o rozmiarze do 8 MB.');
+      attachment.value = '';
+      return;
+    }
+    previewUrl = URL.createObjectURL(file);
+    if (thumbnail) thumbnail.src = previewUrl;
+    if (fileName) fileName.textContent = file.name;
+    if (preview) preview.hidden = false;
+  });
+  function clearAttachmentPreviewOnly() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = '';
+    if (thumbnail) thumbnail.removeAttribute('src');
+    if (preview) preview.hidden = true;
+  }
+  document.getElementById('chat-image-remove')?.addEventListener('click', clearAttachment);
   message?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -764,7 +837,37 @@ function bindChatForm() {
     const stop = document.getElementById('chat-stop');
     const feedback = document.getElementById('chat-feedback');
     const text = message?.value.trim();
-    if (!text || !agent || !feedback || activeChatController) return;
+    if (!text || !agent || !feedback || activeChatController || visionBusy) return;
+    const file = attachment?.files?.[0] ?? null;
+    if (file) {
+      visionBusy = true;
+      submit.disabled = true;
+      const name = AGENT_PROFILES.find((profile) => profile.id === agent.value)?.name ?? agent.value;
+      appendTranscript('user', `Ty · ${name} · zdjęcie`, `${text} (dołączono obraz)`);
+      const answer = appendTranscript('assistant', `${name} · analizuje zdjęcie`, 'Wysyłanie do Vision…');
+      feedback.textContent = 'Analiza obrazu przez model Vision…';
+      try {
+        const prepared = await prepareVisionImage(file);
+        const result = await api.vision(agent.value, text, prepared);
+        if (typeof result.content !== 'string') throw new ApiError('Brak tekstu odpowiedzi modelu Vision.');
+        if (answer) {
+          answer.text.textContent = result.content;
+          answer.heading.textContent = `${name} · ${result.model ?? 'Vision'}`;
+        }
+        message.value = '';
+        clearAttachment();
+        feedback.textContent = 'Odpowiedź modelu Vision otrzymana z API.';
+      } catch (error) {
+        answer?.entry.remove();
+        appendTranscript('error', 'Błąd Vision', error.message);
+        feedback.textContent = error.message;
+      } finally {
+        visionBusy = false;
+        submit.disabled = false;
+        await loadTasks();
+      }
+      return;
+    }
 
     const controller = new AbortController();
     activeChatController = controller;
