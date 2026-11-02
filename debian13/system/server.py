@@ -363,6 +363,30 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_chat_events(self, content: str, profile: str, model: str) -> None:
+        # A provider response is delivered as a single event after completion.
+        # This is NOT token-by-token model streaming and is not persisted.
+        source = "ollama" if urllib.parse.urlsplit(
+            self.server.config["model_chat_url"]
+        ).hostname == "ollama" else "model_provider"
+        frames = [
+            ("meta", {"model": model, "session_persisted": False}),
+            ("delta", {"text": content}),
+            ("done", {"agent": profile, "source": source, "model": model}),
+        ]
+        body = "".join(
+            "event: " + event + "\\n" +
+            "data: " + json.dumps(payload, ensure_ascii=False) + "\\n\\n"
+            for event, payload in frames
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(body)
+
     def _authorize(self) -> bool:
         expected = "Bearer " + self.server.config["api_token"]
         supplied = self.headers.get("Authorization", "")
@@ -453,6 +477,34 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                  "connected": False, "description": "GitHub Actions workflow; requires OPENAI_API_KEY and a verified run."},
             ]})
             return
+        if self.path == "/api/v1/status":
+            report = runtime_diagnostics(self.server)
+            self._send_json(200, {
+                "application": {"status": "running", "product": "Debian 13 Console"},
+                "operating_system": {"runtime": {
+                    "distribution": platform.platform(),
+                    "debian_13_boot_verified": False,
+                }},
+                "model": {
+                    "status": "configured" if report["providerConfigured"] else "not_configured",
+                    "inference": "unverified",
+                },
+                "task_state": "Brak uruchomionych workerów",
+            })
+            return
+        if self.path == "/api/v1/agents":
+            self._send_json(200, {"agents": [
+                {"id": key, "name": profile["name"], "role": profile["role"],
+                 "status": "profile_configured", "worker": "not_running"}
+                for key, profile in PROFILES.items()
+            ]})
+            return
+        if self.path == "/api/v1/tasks":
+            self._send_json(200, {"tasks": []})
+            return
+        if self.path == "/api/v1/events":
+            self._send_json(200, {"events": []})
+            return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
     def do_POST(self) -> None:
@@ -463,12 +515,16 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         request_id = str(uuid.uuid4())
         try:
             data = self._read_json(MAX_VISION_BODY_BYTES if self.path == "/v1/vision" else MAX_BODY_BYTES)
-            if self.path == "/v1/terminal":
+            if self.path in ("/v1/terminal", "/api/v1/terminal"):
                 result = run_terminal(data.get("command"), self.server.workspace)
-                self._send_json(200, {"requestId": request_id, **result})
+                if self.path == "/api/v1/terminal":
+                    self._send_json(200, {"requestId": request_id, "output": result["stdout"] + result["stderr"],
+                                          "exitCode": result["exitCode"]})
+                else:
+                    self._send_json(200, {"requestId": request_id, **result})
                 return
-            if self.path in ("/v1/chat", "/v1/vision"):
-                profile = data.get("profile")
+            if self.path in ("/v1/chat", "/v1/vision", "/api/v1/chat/stream"):
+                profile = data.get("agent") if self.path == "/api/v1/chat/stream" else data.get("profile")
                 message = data.get("message")
                 if not isinstance(profile, str) or profile not in PROFILES:
                     raise ApiError(400, "invalid_profile", "Select aria, astyria, aurelius, or alex.")
@@ -476,6 +532,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(400, "invalid_message", "Message must contain 1–4000 characters.")
                 image = validate_image(data.get("image")) if self.path == "/v1/vision" else None
                 content, model = complete_chat(profile, message.strip(), self.server.config, image)
+                if self.path == "/api/v1/chat/stream":
+                    self._send_chat_events(content, profile, model)
+                    return
                 self._send_json(200, {
                     "requestId": request_id,
                     "profile": profile,
