@@ -1,0 +1,37 @@
+services:
+  debian13-system:
+    build:
+      context: .
+    image: debian13-system:local
+    init: true
+    user: "10001:10001"
+    environment:
+      DEBIAN13_API_TOKEN: "${DEBIAN13_API_TOKEN:?Set DEBIAN13_API_TOKEN to a random secret of at least 32 characters}"
+      MODEL_CHAT_URL: "${MODEL_CHAT_URL:-}"
+      MODEL_API_KEY: "${MODEL_API_KEY:-}"
+      MODEL_NAME: "${MODEL_NAME:-}"
+      VISION_MODEL_NAME: "${VISION_MODEL_NAME:-}"
+      ALEX_EXISTING_API_URL: "${ALEX_EXISTING_API_URL:-}"
+      ALEX_EXISTING_API_TOKEN: "${ALEX_EXISTING_API_TOKEN:-}"
+      ALEX_ALLOW_TASK_DISPATCH: "${ALEX_ALLOW_TASK_DISPATCH:-0}"
+      HOST: 0.0.0.0
+      PORT: "8080"
+      WORKSPACE_DIR: /workspace
+    ports:
+      - "127.0.0.1:${DEBIAN13_PORT:-8080}:8080"
+    volumes:
+      - debian13-workspace:/workspace
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
+volumes:
+  debian13-workspace:

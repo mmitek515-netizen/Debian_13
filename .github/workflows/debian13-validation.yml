@@ -1,0 +1,198 @@
+name: Debian 13 validation
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.devcontainer/debian13/**'
+      - '.github/workflows/debian13-validation.yml'
+      - 'docs/DEBIAN13_AGENT_SETUP.md'
+      - 'debian13/**'
+permissions:
+  contents: read
+concurrency:
+  group: debian13-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Debian 13 test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          test "$VERSION_ID" = "13"
+          apt-get update
+          apt-get install -y --no-install-recommends python3 nodejs npm
+      - name: Validate Codespaces workspace isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          config = json.loads(Path(".devcontainer/debian13/devcontainer.json").read_text())
+          expected = "/workspaces/${localWorkspaceFolderBasename}/debian13"
+          assert config["workspaceFolder"] == expected
+          assert Path("debian13/README.md").is_file()
+          assert config["portsAttributes"]["3000"]["visibility"] == "private"
+          print("Debian 13 isolated workspace verified")
+          PY
+      - name: Test standalone Debian 13 API
+        run: python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
+      - name: Test Debian 13 UI proxy
+        run: node --test debian13/ui/dev_server.test.mjs
+      - name: Check private Codespaces AI launch script
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n debian13/start-ai-session.sh
+          bash -n debian13/start-local.sh
+          bash debian13/start-local.sh --check
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          conf = json.loads(Path(".devcontainer/devcontainer.json").read_text())
+          assert conf["workspaceFolder"] == "/workspaces/${localWorkspaceFolderBasename}"
+          assert conf["portsAttributes"]["3000"]["visibility"] == "private"
+          assert conf["portsAttributes"]["8765"]["visibility"] == "private"
+          names = ("Alex", "Aria", "Astyria", "Aurelius")
+          for name in names:
+              text = Path(f".github/agents/{name}.agent.md").read_text()
+              assert f"name: {name}" in text
+          print("PASS: root Codespaces config and four original agent profiles")
+          PY
+      - name: Start real API + GUI with one Python-only command (no Docker)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP_DIR="$(mktemp -d)"
+          export DEBIAN13_STATE_DIR="$TMP_DIR/state"
+          export WORKSPACE_DIR="$TMP_DIR/workspace"
+          export DEBIAN13_UI_PORT=3000
+          export DEBIAN13_API_PORT=8765
+          bash debian13/start-local.sh >"$TMP_DIR/launch.log" 2>&1 &
+          LAUNCH_PID=$!
+          trap 'kill "$LAUNCH_PID" 2>/dev/null || true; wait "$LAUNCH_PID" 2>/dev/null || true; cat "$TMP_DIR/launch.log"; rm -rf "$TMP_DIR"' EXIT
+          for attempt in $(seq 1 60); do
+            if python3 - <<'PY'
+          import urllib.request
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:3000/api/v1/status", timeout=.5) as r:
+                  assert r.status == 200
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then break; fi
+            if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then
+              echo "Local startup process exited prematurely" >&2; exit 1
+            fi
+            sleep .2
+          done
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+          base="http://127.0.0.1:3000"
+          page = urllib.request.urlopen(base+"/", timeout=3).read().decode()
+          assert 'id="chat-form"' in page
+          assert 'id="original-agent-list"' in page
+          data = json.load(urllib.request.urlopen(base+"/api/v1/original-agents", timeout=3))
+          assert {x["name"] for x in data["agents"]} == {"Alex","Aria","Astyria","Aurelius"}
+          assert not data["registryReachable"]
+          assert all(not x["workerVerified"] and not x["connected"] for x in data["agents"])
+          payload = json.dumps({"agent":"alex","kind":"development",
+              "title":"Start script smoke task", "description":"Persist a task without AI execution."}).encode()
+          request = urllib.request.Request(base+"/api/v1/tasks", data=payload,
+              headers={"Content-Type":"application/json"}, method="POST")
+          with urllib.request.urlopen(request,timeout=3) as response:
+              assert response.status == 201
+              saved = json.load(response)
+          assert saved["executionStarted"] is False
+          assert saved["task"]["status"] == "queued"
+          assert os.path.isfile(os.path.join(os.environ["WORKSPACE_DIR"],".debian13-work.sqlite3"))
+          request = urllib.request.Request(base+"/api/v1/chat/stream", data=json.dumps({
+              "agent":"alex","message":"test"}).encode(),
+              headers={"Content-Type":"application/json"}, method="POST")
+          try:
+              urllib.request.urlopen(request, timeout=3)
+              raise AssertionError("Must fail closed without real AI model")
+          except urllib.error.HTTPError as error:
+              assert error.code == 503
+          print("PASS: real one-command app, GUI, Work persistence, 4 original agent statuses, honest AI 503")
+          PY
+      - name: Run UI and real backend together on loopback
+        shell: bash
+        env:
+          DEBIAN13_API_TOKEN: ci-gui-backend-check-token-32-chars-minimum
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/debian13-ui-ci-workspace
+          HOST=127.0.0.1 PORT=8765 WORKSPACE_DIR=/tmp/debian13-ui-ci-workspace \
+            python3 debian13/system/server.py > /tmp/debian13-api.log 2>&1 &
+          API_PID=$!
+          DEBIAN13_API_PORT=8765 DEBIAN13_UI_PORT=3000 \
+            python3 debian13/ui/dev_server.py > /tmp/debian13-ui.log 2>&1 &
+          UI_PID=$!
+          trap 'kill "$API_PID" "$UI_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if python3 -c 'import urllib.request;urllib.request.urlopen("http://127.0.0.1:3000/", timeout=1)' >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+          base = "http://127.0.0.1:3000"
+          page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+          assert 'id="chat-form"' in page
+          status = json.load(urllib.request.urlopen(base + "/api/v1/status", timeout=5))
+          assert status["application"]["status"] == "running"
+          assert status["model"]["status"] == "not_configured"
+          agents = json.load(urllib.request.urlopen(base + "/api/v1/agents", timeout=5))
+          assert len(agents["agents"]) == 4
+          assert all(agent["worker"] == "not_running" for agent in agents["agents"])
+          request = urllib.request.Request(
+              base + "/api/v1/chat/stream", method="POST",
+              data=json.dumps({"agent": "alex", "message": "test"}).encode(),
+              headers={"Content-Type": "application/json"})
+          try:
+              urllib.request.urlopen(request, timeout=5)
+              raise AssertionError("Chat must fail closed without configured provider")
+          except urllib.error.HTTPError as error:
+              assert error.code == 503
+          print("PASS: private UI + real backend API, 4 profiles, honest unavailable-model response")
+          PY
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Ollama Compose integration without downloading model weights
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+        run: docker compose -f debian13/system/compose.yaml -f debian13/system/compose.ollama.yaml config --quiet
+      - name: Build isolated Debian 13 service
+        run: docker compose -f debian13/system/compose.yaml build
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+      - name: Start and probe real service
+        shell: bash
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+        run: |
+          set -euo pipefail
+          docker compose -f debian13/system/compose.yaml up -d
+          trap 'docker compose -f debian13/system/compose.yaml logs --no-color; docker compose -f debian13/system/compose.yaml down -v' EXIT
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/v1/diagnostics)
+          test "$status" = "401"
+          curl --fail --silent --show-error -H "Authorization: Bearer $DEBIAN13_API_TOKEN" http://127.0.0.1:8080/v1/profiles >/dev/null
+          docker compose -f debian13/system/compose.yaml exec -T debian13-system python3 /opt/debian13/system/integration_smoke.py
