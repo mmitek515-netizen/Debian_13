@@ -1,7 +1,6 @@
 # Run with:
 # docker compose -f compose.yaml -f compose.ollama.yaml up -d --build
-# Then: docker compose -f compose.yaml -f compose.ollama.yaml exec ollama ollama pull qwen3:14b
-# Vision: docker compose -f compose.yaml -f compose.ollama.yaml exec ollama ollama pull qwen3-vl:8b
+# The model is downloaded automatically on first startup by ollama-model-init.
 services:
   ollama:
     image: ollama/ollama:latest
@@ -17,13 +16,31 @@ services:
       - ALL
     pids_limit: 256
     mem_limit: 20g
-  debian13-system:
+  ollama-model-init:
+    image: ollama/ollama:latest
+    restart: on-failure
     depends_on:
       - ollama
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      until OLLAMA_HOST=http://ollama:11434 ollama list >/dev/null 2>&1; do sleep 3; done
+      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL}"
+    environment:
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+    networks:
+      - default
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+  debian13-system:
+    depends_on:
+      ollama-model-init:
+        condition: service_completed_successfully
     environment:
       MODEL_CHAT_URL: http://ollama:11434/v1/chat/completions
       MODEL_API_KEY: ollama-local-no-remote-secret
-      MODEL_NAME: ${OLLAMA_MODEL:-qwen3:14b}
+      MODEL_NAME: ${OLLAMA_MODEL:-llama3.2-vision:11b}
       DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
 volumes:
   ollama-models:
