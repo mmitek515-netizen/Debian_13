@@ -234,3 +234,31 @@ test('persistent Work task creation is proxied with server-side token', async (t
   assert.equal(upstream.requests[0].authorization, 'Bearer fixture-long-operator-token');
   assert.deepEqual(JSON.parse(upstream.requests[0].body), task);
 });
+
+test('original Alex capability and explicit operator handoff stay behind tokenized UI proxy', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'operator-test-token-long-enough-for-ci');
+  const capability = await fetch(`${base}/api/v1/alex/capabilities`);
+  assert.equal(capability.status, 200);
+  assert.equal((await capability.json()).path, '/api/v1/alex/capabilities');
+  const taskId = '123e4567-e89b-42d3-a456-426614174001';
+  const dispatch = await fetch(`${base}/api/v1/tasks/${taskId}/dispatch`, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer do-not-trust-browser' },
+  });
+  assert.equal(dispatch.status, 200);
+  assert.equal((await dispatch.json()).path, `/api/v1/tasks/${taskId}/dispatch`);
+  assert.equal(upstream.requests[0].authorization,
+    'Bearer operator-test-token-long-enough-for-ci');
+  assert.equal(upstream.requests[1].authorization,
+    'Bearer operator-test-token-long-enough-for-ci');
+  assert.equal(upstream.requests[1].body, '');
+  assert.equal(upstream.requests[1].method, 'POST');
+  const blocked = await fetch(`${base}/api/v1/tasks/${taskId}/dispatch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({force: true, purchaseAuthorized: true}),
+  });
+  assert.equal(blocked.status, 400);
+  assert.equal(upstream.requests.length, 2, 'invalid dispatch must not reach API');
+});
