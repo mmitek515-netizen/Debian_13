@@ -119,6 +119,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getAgents: () => request('agents'),
     getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
+    createTask: (task) => post('tasks', task),
     getTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}`),
     getEvents: () => request('events'),
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
@@ -297,7 +298,7 @@ function renderTasks(tasks) {
     item.className = 'task-item';
     item.dataset.taskId = task.id;
     const detail = document.createElement('span');
-    detail.textContent = `${task.kind} · ${task.agent} · ${task.id}`;
+    detail.textContent = `${task.title || task.kind} · ${task.agent} · ${task.id}`;
     const status = document.createElement('span');
     status.className = `task-state task-${task.status}`;
     status.textContent = task.status;
@@ -327,11 +328,11 @@ function renderTasks(tasks) {
   if (!tasks.length) {
     const empty = document.createElement('li');
     empty.className = 'empty-state';
-    empty.textContent = 'Brak zadań w bieżącym procesie.';
+    empty.textContent = 'Brak zapisanych zadań do przeglądu.';
     fragment.append(empty);
   }
   list.replaceChildren(fragment);
-  setText('tasks-count', `${tasks.length} zadań · pamięć procesu`);
+  setText('tasks-count', `${tasks.length} zadań · trwały zapis SQLite, bez uruchomionych workerów`);
   setText('tasks-error', '');
 }
 
@@ -367,7 +368,7 @@ function renderEvents(events) {
     fragment.append(empty);
   }
   list.replaceChildren(fragment);
-  setText('events-count', `${events.length} zdarzeń · pamięć procesu`);
+  setText('events-count', `${events.length} zdarzeń · trwały dziennik SQLite`);
   setText('events-error', '');
 }
 
@@ -990,6 +991,36 @@ function bindChatForm() {
   });
 }
 
+function bindWorkCreateForm() {
+  const form = document.getElementById('work-create-form');
+  if (!form) return;
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = document.getElementById('work-create-submit');
+    const agent = document.getElementById('work-task-agent')?.value;
+    const kind = document.getElementById('work-task-kind')?.value;
+    const title = document.getElementById('work-task-title')?.value.trim();
+    const description = document.getElementById('work-task-description')?.value.trim();
+    if (!agent || !kind || !title || !description || button.disabled) return;
+    button.disabled = true;
+    setText('work-create-feedback', 'Zapisuję zadanie w bazie API…');
+    try {
+      const result = await api.createTask({ agent, kind, title, description });
+      if (!result.task?.id || result.executionStarted !== false) {
+        throw new ApiError('API nie potwierdziło bezpiecznej rejestracji zadania.');
+      }
+      document.getElementById('work-task-title').value = '';
+      document.getElementById('work-task-description').value = '';
+      await refreshWork();
+      setText('work-create-feedback', 'Zadanie zapisane. Agent AI NIE został uruchomiony; oczekuje na przegląd operatora.');
+    } catch (error) {
+      setText('work-create-feedback', error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 function bindTerminalForm() {
   const form = document.getElementById('terminal-form');
   if (!form) return;
@@ -1023,6 +1054,7 @@ if (typeof document !== 'undefined') {
   bindNavigation();
   bindChatForm();
   bindTerminalForm();
+  bindWorkCreateForm();
   renderHistory();
   document.getElementById('refresh-status')?.addEventListener('click', refreshDashboard);
   document.getElementById('refresh-tasks')?.addEventListener('click', refreshWork);
