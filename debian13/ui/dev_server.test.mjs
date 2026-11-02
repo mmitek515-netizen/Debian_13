@@ -217,3 +217,20 @@ test('integrations panel proxy maps authenticated UI route to the real backend A
   assert.equal(upstream.requests[0].url, '/v1/integrations');
   assert.equal(upstream.requests[0].authorization, 'Bearer fixture-only-operator-token');
 });
+
+test('persistent Work task creation is proxied with server-side token', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'fixture-long-operator-token');
+  const task = { agent: 'alex', kind: 'development', title: 'Debian 13',
+    description: 'Plan only: no automatic workers' };
+  const response = await fetch(`${base}/api/v1/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer should-not-be-forwarded' },
+    body: JSON.stringify(task),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).path, '/api/v1/tasks');
+  assert.equal(upstream.requests[0].method, 'POST');
+  assert.equal(upstream.requests[0].authorization, 'Bearer fixture-long-operator-token');
+  assert.deepEqual(JSON.parse(upstream.requests[0].body), task);
+});
