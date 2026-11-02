@@ -1,0 +1,29 @@
+# Run with:
+# docker compose -f compose.yaml -f compose.ollama.yaml up -d --build
+# Then: docker compose -f compose.yaml -f compose.ollama.yaml exec ollama ollama pull qwen3:14b
+# Vision: docker compose -f compose.yaml -f compose.ollama.yaml exec ollama ollama pull qwen3-vl:8b
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    expose:
+      - "11434"
+    # No host port published; the model server is reachable only by Compose services.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 20g
+  debian13-system:
+    depends_on:
+      - ollama
+    environment:
+      MODEL_CHAT_URL: http://ollama:11434/v1/chat/completions
+      MODEL_API_KEY: ollama-local-no-remote-secret
+      MODEL_NAME: ${OLLAMA_MODEL:-qwen3:14b}
+      DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
+volumes:
+  ollama-models:
