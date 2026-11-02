@@ -13,11 +13,17 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from alex_bridge import read_existing_alex
+
 PROTOCOL_VERSION = "2025-11-25"
 TOOLS = {
     "debian13_profiles": ("List configured AI profiles and their real active flags.", "/v1/profiles"),
     "debian13_diagnostics": ("Read authenticated runtime diagnostics; no secrets.", "/v1/diagnostics"),
     "debian13_integrations": ("Read the actual integration configuration status.", "/v1/integrations"),
+    "alex_existing_status": (
+        "Read live connectivity of the ORIGINAL owner's Alex task registry; no agent execution.", "alex:status"),
+    "alex_existing_tasks": (
+        "Read the ORIGINAL owner's Alex task statuses only; never create or modify tasks.", "alex:tasks"),
 }
 MAX_RESPONSE = 65536
 
@@ -93,11 +99,13 @@ def response(request: dict) -> dict | None:
         if params.get("arguments", {}) != {}:
             return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "No tool arguments are supported"}}
         try:
-            value = read_api(TOOLS[params["name"]][1])
+            path = TOOLS[params["name"]][1]
+            value = (read_existing_alex(params["name"])
+                     if path.startswith("alex:") else read_api(path))
             result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}], "isError": False}
         except (ValueError, OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
             # Do not echo URLs, bearer credentials, response bodies, or internals.
-            result = {"content": [{"type": "text", "text": "Debian 13 API is unavailable or returned an invalid response."}], "isError": True}
+            result = {"content": [{"type": "text", "text": "The configured Debian 13 or existing Alex API is unavailable or invalid."}], "isError": True}
     else:
         return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found"}}
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
