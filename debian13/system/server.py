@@ -577,7 +577,11 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
                     self.close_connection = True
                     raise ApiError(400, "unexpected_body", "Task cancellation takes no request body.")
-                task = self.server.work_store.cancel_task(cancel.group(1))
+                with self.server._alex_dispatch_lock:
+                    if self.server.work_store.get_alex_submission(cancel.group(1)):
+                        raise ApiError(409, "already_handed_off",
+                                       "Task accepted by Alex API; local cancellation cannot recall it.")
+                    task = self.server.work_store.cancel_task(cancel.group(1))
                 if task is None:
                     raise ApiError(404, "task_not_found", "Task not found.")
                 self._send_json(200, {"task": task})
