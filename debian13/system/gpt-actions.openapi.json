@@ -1,0 +1,200 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Debian 13 — GPT Actions",
+    "version": "0.1.0",
+    "description": "Operator-approved access to the real Debian 13 authenticated API. Requires an operator-controlled HTTPS reverse proxy. These endpoints do not perform arbitrary OS operations."
+  },
+  "servers": [
+    {
+      "url": "https://debian13.example.com",
+      "description": "REPLACE with your own HTTPS domain before importing"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Use the DEBIAN13_API_TOKEN as an API-key Bearer credential. Never paste it into the schema."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": [
+          "profile",
+          "message"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string",
+            "enum": [
+              "alex",
+              "aria",
+              "astyria",
+              "aurelius"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v1/profiles": {
+      "get": {
+        "operationId": "listDebian13Agents",
+        "summary": "List configured agent profiles, not background worker claims",
+        "responses": {
+          "200": {
+            "description": "Profiles and provider configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profiles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "providerConfigured": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/integrations": {
+      "get": {
+        "operationId": "getDebian13Integrations",
+        "summary": "Get actual configuration states of MCP, Codex, GPT Actions",
+        "responses": {
+          "200": {
+            "description": "Integration statuses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "integrations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/diagnostics": {
+      "get": {
+        "operationId": "getDebian13Diagnostics",
+        "summary": "Get authenticated process diagnostics",
+        "responses": {
+          "200": {
+            "description": "Read-only diagnostics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v1/chat": {
+      "post": {
+        "operationId": "sendDebian13AgentMessage",
+        "summary": "Send a text message to a selected configured provider model",
+        "description": "Requires configured reachable model. Does not create a background agent or execute commands.",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Real model answer",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "503": {
+            "description": "Model is not configured or unavailable"
+          }
+        }
+      }
+    }
+  }
+}
