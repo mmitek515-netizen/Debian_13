@@ -10,6 +10,7 @@ services:
       MODEL_CHAT_URL: "${MODEL_CHAT_URL:-}"
       MODEL_API_KEY: "${MODEL_API_KEY:-}"
       MODEL_NAME: "${MODEL_NAME:-}"
+      VISION_MODEL_NAME: "${VISION_MODEL_NAME:-}"
       HOST: 0.0.0.0
       PORT: "8080"
       WORKSPACE_DIR: /workspace
