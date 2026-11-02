@@ -26,7 +26,7 @@ TOOLS = {
     "alex_existing_tasks": (
         "Read the ORIGINAL owner's Alex task statuses only; never create or modify tasks.", "alex:tasks"),
 }
-MAX_RESPONSE = 65536
+MAX_RESPONSE = 262144
 
 
 def api_base() -> str:
