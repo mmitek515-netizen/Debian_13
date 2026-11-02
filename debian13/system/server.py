@@ -25,11 +25,12 @@ from pathlib import Path
 MAX_BODY_BYTES = 16 * 1024
 MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
+MAX_PROVIDER_RESPONSE_BYTES = 64 * 1024
 MAX_OUTPUT_BYTES = 1024 * 1024
 MAX_MESSAGE_CHARS = 4000
 MAX_COMMAND_CHARS = 2000
 COMMAND_TIMEOUT_SECONDS = 10
-CHAT_TIMEOUT_SECONDS = 45
+CHAT_TIMEOUT_SECONDS = 110
 RATE_WINDOW_SECONDS = 60
 RATE_LIMIT = 30
 
@@ -281,12 +282,12 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
         with opener.open(request, timeout=CHAT_TIMEOUT_SECONDS) as response:
             if response.status != 200:
                 raise ApiError(502, "provider_error", "The configured model provider returned an error.")
-            raw = response.read(MAX_BODY_BYTES + 1)
+            raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
     except urllib.error.HTTPError as exc:
         raise ApiError(502, "provider_error", "The configured model provider returned an error.") from exc
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         raise ApiError(504, "provider_unavailable", "The configured model provider did not respond.") from exc
-    if len(raw) > MAX_BODY_BYTES:
+    if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
         raise ApiError(502, "provider_response_too_large", "The model provider response exceeded the size limit.")
     try:
         data = json.loads(raw)
