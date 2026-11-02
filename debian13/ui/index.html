@@ -118,6 +118,17 @@
                 autocomplete="off"
                 required
               ></textarea>
+              <div class="vision-attachment">
+                <label class="button button-secondary vision-select" for="chat-image">
+                  <span aria-hidden="true">▧</span> Dodaj zdjęcie (Vision)
+                </label>
+                <input id="chat-image" type="file" accept="image/jpeg,image/png" aria-label="Dodaj zdjęcie do analizy Llama Vision" />
+                <div id="chat-image-preview" class="vision-preview" hidden>
+                  <img id="chat-image-thumbnail" alt="Wybrane zdjęcie do analizy" />
+                  <span id="chat-image-name"></span>
+                  <button id="chat-image-remove" class="button button-secondary" type="button">Usuń</button>
+                </div>
+              </div>
               <div class="form-footer">
                 <p id="chat-feedback" class="form-feedback" aria-live="polite">
                   Wiadomość zostanie wysłana po połączeniu z API.
