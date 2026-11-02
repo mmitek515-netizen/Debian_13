@@ -40,7 +40,9 @@ class IntegrationTests(unittest.TestCase):
         connection = http.client.HTTPConnection(*self.api.server_address, timeout=4)
         try:
             connection.request("GET", "/v1/integrations")
-            self.assertEqual(connection.getresponse().status, 401)
+            unauthorized = connection.getresponse()
+            self.assertEqual(unauthorized.status, 401)
+            unauthorized.read()
             connection.request("GET", "/v1/integrations", headers={"Authorization": "Bearer " + TOKEN})
             reply = connection.getresponse()
             self.assertEqual(reply.status, 200)
