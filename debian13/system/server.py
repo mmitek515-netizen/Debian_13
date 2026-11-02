@@ -407,6 +407,16 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/v1/diagnostics":
             self._send_json(200, runtime_diagnostics(self.server))
             return
+        if self.path == "/v1/integrations":
+            self._send_json(200, {"integrations": [
+                {"id": "mcp", "name": "MCP", "status": "stdio_available",
+                 "connected": False, "description": "Read-only MCP stdio bridge; client connection not verified."},
+                {"id": "gpt_actions", "name": "GPT Actions", "status": "schema_available",
+                 "connected": False, "description": "OpenAPI document available; HTTPS deployment and GPT setup required."},
+                {"id": "codex", "name": "Codex", "status": "workflow_available",
+                 "connected": False, "description": "GitHub Actions workflow; requires OPENAI_API_KEY and a verified run."},
+            ]})
+            return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
     def do_POST(self) -> None:
