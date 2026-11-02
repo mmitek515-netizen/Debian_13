@@ -45,6 +45,51 @@ jobs:
         run: python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
       - name: Test Debian 13 UI proxy
         run: node --test debian13/ui/dev_server.test.mjs
+      - name: Check private Codespaces AI launch script
+        shell: bash
+        run: bash -n debian13/start-ai-session.sh
+      - name: Run UI and real backend together on loopback
+        shell: bash
+        env:
+          DEBIAN13_API_TOKEN: ci-gui-backend-check-token-32-chars-minimum
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/debian13-ui-ci-workspace
+          HOST=127.0.0.1 PORT=8765 WORKSPACE_DIR=/tmp/debian13-ui-ci-workspace \
+            python3 debian13/system/server.py > /tmp/debian13-api.log 2>&1 &
+          API_PID=$!
+          DEBIAN13_API_PORT=8765 DEBIAN13_UI_PORT=3000 \
+            python3 debian13/ui/dev_server.py > /tmp/debian13-ui.log 2>&1 &
+          UI_PID=$!
+          trap 'kill "$API_PID" "$UI_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if python3 -c 'import urllib.request;urllib.request.urlopen("http://127.0.0.1:3000/", timeout=1)' >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+          base = "http://127.0.0.1:3000"
+          page = urllib.request.urlopen(base + "/", timeout=5).read().decode()
+          assert 'id="chat-form"' in page
+          status = json.load(urllib.request.urlopen(base + "/api/v1/status", timeout=5))
+          assert status["application"]["status"] == "running"
+          assert status["model"]["status"] == "not_configured"
+          agents = json.load(urllib.request.urlopen(base + "/api/v1/agents", timeout=5))
+          assert len(agents["agents"]) == 4
+          assert all(agent["worker"] == "not_running" for agent in agents["agents"])
+          request = urllib.request.Request(
+              base + "/api/v1/chat/stream", method="POST",
+              data=json.dumps({"agent": "alex", "message": "test"}).encode(),
+              headers={"Content-Type": "application/json"})
+          try:
+              urllib.request.urlopen(request, timeout=5)
+              raise AssertionError("Chat must fail closed without configured provider")
+          except urllib.error.HTTPError as error:
+              assert error.code == 503
+          print("PASS: private UI + real backend API, 4 profiles, honest unavailable-model response")
+          PY
   container-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
