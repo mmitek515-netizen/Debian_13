@@ -67,12 +67,18 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertEqual(body["error"]["code"], "provider_not_configured")
 
-    def test_ui_routes_require_adapter_not_yet_implemented(self):
-        # This is a documented integration blocker, not a passing UI smoke test.
-        for path in ("/api/v1/status", "/api/v1/agents", "/api/v1/tasks"):
-            with self.subTest(path=path):
-                status, _ = self.request("GET", path)
-                self.assertEqual(status, 404)
+    def test_ui_routes_report_real_provider_and_worker_state(self):
+        status, data = self.request("GET", "/api/v1/status")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["model"]["status"], "not_configured")
+        self.assertEqual(data["model"]["inference"], "unverified")
+        status, data = self.request("GET", "/api/v1/agents")
+        self.assertEqual(status, 200)
+        self.assertTrue(all(agent["worker"] == "not_running" for agent in data["agents"]))
+        for path in ("/api/v1/tasks", "/api/v1/events"):
+            status, _ = self.request("GET", path)
+            self.assertEqual(status, 200)
+
 
 
 if __name__ == "__main__":
