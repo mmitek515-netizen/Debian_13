@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import http.server
 import json
@@ -21,6 +23,8 @@ import uuid
 from pathlib import Path
 
 MAX_BODY_BYTES = 16 * 1024
+MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
+MAX_IMAGE_BYTES = 2 * 1024 * 1024
 MAX_OUTPUT_BYTES = 1024 * 1024
 MAX_MESSAGE_CHARS = 4000
 MAX_COMMAND_CHARS = 2000
@@ -219,14 +223,46 @@ def run_terminal(command: str, workspace: Path) -> dict:
     }
 
 
-def complete_chat(profile: str, message: str, config: dict) -> tuple[str, str]:
+def validate_image(image: object) -> str:
+    """Validate PNG/JPEG base64 and return a bounded data URI for the model."""
+    if not isinstance(image, dict) or set(image) != {"mime_type", "base64"}:
+        raise ApiError(400, "invalid_image", "Expected an image with mime_type and base64.")
+    mime = image.get("mime_type")
+    encoded = image.get("base64")
+    if mime not in ("image/png", "image/jpeg") or not isinstance(encoded, str):
+        raise ApiError(400, "invalid_image", "Only PNG and JPEG images are supported.")
+    if len(encoded) > 4 * ((MAX_IMAGE_BYTES + 2) // 3):
+        raise ApiError(413, "image_too_large", "Image exceeds 2 MiB.")
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ApiError(400, "invalid_image", "Invalid base64-encoded image.") from exc
+    if len(raw) > MAX_IMAGE_BYTES or not raw:
+        raise ApiError(413, "image_too_large", "Image exceeds 2 MiB or is empty.")
+    if mime == "image/png":
+        correct = raw.startswith(b"\x89PNG\r\n\x1a\n")
+    else:
+        correct = raw.startswith(b"\xff\xd8\xff")
+    if not correct:
+        raise ApiError(400, "invalid_image", "Image bytes do not match the declared MIME type.")
+    return "data:" + mime + ";base64," + encoded
+
+
+def complete_chat(profile: str, message: str, config: dict, image: str | None = None) -> tuple[str, str]:
     if not config["model_chat_url"] or not config["model_api_key"] or not config["model_name"]:
         raise ApiError(503, "provider_not_configured", "No AI model provider is configured.")
+    model = config.get("vision_model_name", "") if image is not None else config["model_name"]
+    if not model:
+        raise ApiError(503, "vision_not_configured", "A vision model is not configured.")
+    user_content = message if image is None else [
+        {"type": "text", "text": message},
+        {"type": "image_url", "image_url": {"url": image}},
+    ]
     payload = json.dumps({
-        "model": config["model_name"],
+        "model": model,
         "messages": [
             {"role": "system", "content": PROFILES[profile]["prompt"]},
-            {"role": "user", "content": message},
+            {"role": "user", "content": user_content},
         ],
         "temperature": 0.2,
     }).encode("utf-8")
@@ -259,7 +295,7 @@ def complete_chat(profile: str, message: str, config: dict) -> tuple[str, str]:
         raise ApiError(502, "invalid_provider_response", "The model provider returned an invalid response.") from exc
     if not isinstance(content, str) or not content.strip():
         raise ApiError(502, "empty_provider_response", "The model provider returned no message.")
-    return content.strip()[:MAX_MESSAGE_CHARS], config["model_name"]
+    return content.strip()[:MAX_MESSAGE_CHARS], model
 
 
 def runtime_diagnostics(server) -> dict:
@@ -366,15 +402,15 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 }
         return True
 
-    def _read_json(self) -> dict:
+    def _read_json(self, limit: int = MAX_BODY_BYTES) -> dict:
         raw_length = self.headers.get("Content-Length", "")
         if not raw_length.isdigit():
             raise ApiError(400, "invalid_content_length", "A valid Content-Length header is required.")
         if len(raw_length) > 8:
             raise ApiError(413, "request_too_large", "Request body exceeds 16 KiB.")
         length = int(raw_length)
-        if length > MAX_BODY_BYTES:
-            raise ApiError(413, "request_too_large", "Request body exceeds 16 KiB.")
+        if length > limit:
+            raise ApiError(413, "request_too_large", "Request body exceeds the size limit.")
         try:
             data = json.loads(self.rfile.read(length))
         except (ValueError, UnicodeDecodeError) as exc:
@@ -426,19 +462,20 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         request_id = str(uuid.uuid4())
         try:
-            data = self._read_json()
+            data = self._read_json(MAX_VISION_BODY_BYTES if self.path == "/v1/vision" else MAX_BODY_BYTES)
             if self.path == "/v1/terminal":
                 result = run_terminal(data.get("command"), self.server.workspace)
                 self._send_json(200, {"requestId": request_id, **result})
                 return
-            if self.path == "/v1/chat":
+            if self.path in ("/v1/chat", "/v1/vision"):
                 profile = data.get("profile")
                 message = data.get("message")
                 if not isinstance(profile, str) or profile not in PROFILES:
                     raise ApiError(400, "invalid_profile", "Select aria, astyria, aurelius, or alex.")
                 if not isinstance(message, str) or not message.strip() or len(message) > MAX_MESSAGE_CHARS:
                     raise ApiError(400, "invalid_message", "Message must contain 1–4000 characters.")
-                content, model = complete_chat(profile, message.strip(), self.server.config)
+                image = validate_image(data.get("image")) if self.path == "/v1/vision" else None
+                content, model = complete_chat(profile, message.strip(), self.server.config, image)
                 self._send_json(200, {
                     "requestId": request_id,
                     "profile": profile,
@@ -466,6 +503,7 @@ def load_config() -> dict:
         "model_chat_url": provider_url,
         "model_api_key": os.environ.get("MODEL_API_KEY", ""),
         "model_name": os.environ.get("MODEL_NAME", ""),
+        "vision_model_name": os.environ.get("VISION_MODEL_NAME", ""),
         "workspace": os.environ.get("WORKSPACE_DIR", "/workspace"),
         "host": os.environ.get("HOST", "127.0.0.1"),
         "port": int(os.environ.get("PORT", "8080")),
