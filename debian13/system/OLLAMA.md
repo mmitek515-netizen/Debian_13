@@ -48,3 +48,25 @@ implementation and tests. Merely pulling Qwen3-VL does not enable vision in UI.
   persistent local 14B inference; deploy on a persistent host for 24/7 use.
 - Review and pin the Ollama container image to a tested digest before
   production deployment.
+
+## Llama 3.2 Vision 11B
+
+The official Ollama tag is `llama3.2-vision:11b` (approximately 7.8 GB model download).
+It accepts image and text input, and returns text. Ollama recommends at least
+8 GB VRAM for GPU inference; check actual host resources before downloading.
+
+```sh
+docker compose -f compose.yaml -f compose.ollama.yaml exec ollama ollama pull llama3.2-vision:11b
+```
+
+To select it for the current text-chat API, start Compose with:
+
+```sh
+export OLLAMA_MODEL=llama3.2-vision:11b
+docker compose -f compose.yaml -f compose.ollama.yaml up -d --build
+```
+
+**Important:** selecting a vision-capable model does not yet enable image uploads
+through the Debian 13 application. That needs multimodal request support in
+`server.py` and the UI. For multimodal prompts, Ollama's native `/api/chat`
+accepts an `images` array in a user message.
