@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Niezależny interfejs roboczy terminala i czatu dla nowego systemu Debian 13."
+    />
+    <title>Debian 13 · Console</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.mjs"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <button id="mobile-menu" class="icon-button mobile-menu" type="button" aria-label="Otwórz panel boczny" aria-expanded="false" aria-controls="sidebar">
+          <span aria-hidden="true">☰</span>
+        </button>
+        <a class="brand" href="./" aria-label="Debian 13 Console — pulpit">
+          <span class="brand-mark" aria-hidden="true">D13</span>
+          <span>
+            <strong>Debian 13</strong>
+            <span class="brand-subtitle">Console · nowy system</span>
+          </span>
+        </a>
+        <div id="connection-status" class="runtime-pill" role="status" aria-live="polite">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Łączenie z runtime…</span>
+        </div>
+      </header>
+
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Zamknij panel boczny" hidden></button>
+      <div id="app-layout" class="app-layout">
+        <aside id="sidebar" class="sidebar" aria-label="Panel nawigacyjny">
+          <div class="sidebar-heading">
+            <button id="new-chat" class="new-chat-button" type="button" aria-label="Nowy czat">
+              <span aria-hidden="true">＋</span><span class="nav-label">Nowy czat</span>
+            </button>
+            <button id="sidebar-collapse" class="icon-button collapse-button" type="button" aria-label="Zwiń panel boczny" aria-expanded="true">
+              <span aria-hidden="true">⇤</span>
+            </button>
+          </div>
+
+          <nav class="primary-nav" aria-label="Widoki">
+            <button class="nav-button is-active" type="button" data-view="chat" aria-current="page" aria-label="Czat">
+              <span class="nav-icon" aria-hidden="true">◉</span><span class="nav-label">Czat</span>
+            </button>
+            <button class="nav-button" type="button" data-view="work" aria-label="Work">
+              <span class="nav-icon" aria-hidden="true">▤</span><span class="nav-label">Work</span>
+            </button>
+            <button class="nav-button" type="button" data-view="terminal" aria-label="Terminal">
+              <span class="nav-icon" aria-hidden="true">›_</span><span class="nav-label">Terminal</span>
+            </button>
+            <button class="nav-button" type="button" data-view="settings" aria-label="Ustawienia">
+              <span class="nav-icon" aria-hidden="true">⚙</span><span class="nav-label">Ustawienia</span>
+            </button>
+          </nav>
+
+          <section class="sidebar-section history-section" aria-labelledby="history-title">
+            <h2 id="history-title" class="sidebar-section-title">Historia</h2>
+            <ul id="chat-history" class="chat-history" aria-label="Ostatnie rozmowy">
+              <li class="history-empty">Brak zapisanych rozmów.</li>
+            </ul>
+          </section>
+
+          <section class="sidebar-section channel-section" aria-labelledby="channel-title">
+            <h2 id="channel-title" class="sidebar-section-title">Profile</h2>
+            <label class="channel-select-label" for="chat-agent">Rozmowa z profilem</label>
+            <select id="chat-agent" name="agent" aria-label="Wybierz profil agenta">
+              <option value="aria">Aria</option>
+              <option value="astyria">Astyria</option>
+              <option value="aurelius">Aurelius</option>
+              <option value="alex">Alex</option>
+            </select>
+            <button class="nav-button unsupported-channel" type="button" disabled title="API v1 nie obsługuje czatu grupowego">
+              <span class="nav-icon" aria-hidden="true">◎</span><span class="nav-label">Wszyscy · niedostępne</span>
+            </button>
+            <p class="sidebar-note">Profile nie oznaczają uruchomionych workerów.</p>
+          </section>
+
+          <div class="sidebar-runtime">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="nav-label">API: <span id="sidebar-runtime-label">sprawdzanie…</span></span>
+          </div>
+        </aside>
+
+        <main class="main-content">
+          <section class="view-intro" aria-labelledby="page-title">
+            <div>
+              <p class="eyebrow">NIEZALEŻNE ŚRODOWISKO DEBIAN 13</p>
+              <h1 id="page-title">W czym mogę pomóc?</h1>
+              <p>Wiadomości są wysyłane do lokalnego API. Odpowiedź modelu pojawi się tylko wtedy, gdy Ollama jest dostępna.</p>
+            </div>
+            <div class="view-switch" role="group" aria-label="Widok pracy">
+              <button class="view-switch-button is-active" type="button" data-view="chat" aria-pressed="true">Czat</button>
+              <button class="view-switch-button" type="button" data-view="work" aria-pressed="false">Work</button>
+            </div>
+          </section>
+
+          <section id="chat-view" class="workspace-view chat-view" aria-label="Czat">
+            <div id="chat-transcript" class="transcript" aria-label="Rozmowa" aria-live="polite" aria-relevant="additions text">
+              <p class="empty-state">
+                Wybierz profil i wyślij wiadomość. <code>/help</code> działa lokalnie;
+                pozostałe wiadomości wymagają dostępnego modelu.
+              </p>
+            </div>
+            <form id="chat-form" class="composer">
+              <label class="visually-hidden" for="chat-message">Wiadomość</label>
+              <textarea
+                id="chat-message"
+                name="message"
+                rows="2"
+                maxlength="12000"
+                placeholder="Napisz wiadomość…"
+                autocomplete="off"
+                required
+              ></textarea>
+              <div class="form-footer">
+                <p id="chat-feedback" class="form-feedback" aria-live="polite">
+                  Wiadomość zostanie wysłana po połączeniu z API.
+                </p>
+                <button id="chat-submit" type="submit" class="button button-primary">Wyślij</button>
+                <button id="chat-stop" class="button button-secondary" type="button" hidden>Zatrzymaj</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="work-view" class="workspace-view work-view" aria-label="Work" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">RZECZYWISTE ZADANIA API</p>
+                <h2>Work</h2>
+              </div>
+              <button id="refresh-tasks" class="button button-secondary" type="button">Ponów połączenie</button>
+            </div>
+            <p id="work-connection-state" class="form-feedback" role="status" aria-live="polite">
+              Work połączy się z API po otwarciu widoku.
+            </p>
+            <p class="work-limit-note">
+              Ten widok pokazuje tylko zadania zwrócone przez API. Kontrakt v1 nie udostępnia
+              planów wieloetapowych, zatwierdzania kroków ani uruchamiania Work.
+            </p>
+            <p id="tasks-error" class="status-error" aria-live="polite"></p>
+            <p id="tasks-count" class="muted-count">Ładowanie…</p>
+            <ul id="task-list" class="task-list" aria-live="polite">
+              <li class="empty-state">Pobieranie zadań…</li>
+            </ul>
+            <section class="event-log" aria-labelledby="events-title">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">RZECZYWISTY DZIENNIK API</p>
+                  <h2 id="events-title">Zdarzenia zadań</h2>
+                </div>
+              </div>
+              <p class="work-limit-note">
+                Tylko zdarzenia cyklu życia zarejestrowane przez backend w pamięci procesu;
+                nie jest to strumień na żywo ani systemowy dziennik Debiana.
+              </p>
+              <p id="events-error" class="status-error" aria-live="polite"></p>
+              <p id="events-count" class="muted-count">Ładowanie…</p>
+              <ul id="event-list" class="event-list" aria-live="polite">
+                <li class="empty-state">Pobieranie zdarzeń…</li>
+              </ul>
+            </section>
+          </section>
+
+          <section id="terminal-view" class="workspace-view terminal-view" aria-labelledby="terminal-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">POLECENIA OGRANICZONEGO API</p>
+                <h2 id="terminal-title">Terminal</h2>
+              </div>
+              <span class="local-badge">pwd · ls · cat</span>
+            </div>
+            <p class="work-limit-note">To nie jest powłoka systemowa. Polecenia są walidowane i obsługiwane przez API.</p>
+            <div id="terminal-output" class="terminal-output" aria-label="Wynik terminala" aria-live="polite">
+              <p class="terminal-hint">Dozwolone są wyłącznie pwd, ls oraz cat &lt;plik&gt; w katalogu roboczym.</p>
+            </div>
+            <form id="terminal-form" class="composer terminal-composer">
+              <label for="terminal-command">Polecenie</label>
+              <input
+                id="terminal-command"
+                name="command"
+                type="text"
+                maxlength="500"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="np. pwd"
+                required
+              />
+              <div class="form-footer">
+                <p id="terminal-feedback" class="form-feedback" aria-live="polite">
+                  Obsługiwane są tylko pwd, ls i cat &lt;plik&gt; w katalogu roboczym.
+                </p>
+                <button id="terminal-submit" type="submit" class="button button-secondary">Uruchom</button>
+              </div>
+            </form>
+          </section>
+
+          <section id="settings-view" class="workspace-view settings-view" aria-labelledby="settings-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">DIAGNOSTYKA API</p>
+                <h2 id="settings-title">Status systemu i profili</h2>
+              </div>
+              <button id="refresh-status" class="button button-secondary" type="button">Odśwież</button>
+            </div>
+            <p id="status-error" class="status-error" aria-live="polite"></p>
+            <dl id="runtime-details" class="runtime-grid" aria-live="polite">
+              <div><dt>Aplikacja</dt><dd id="application-status">Ładowanie…</dd></div>
+              <div><dt>System operacyjny</dt><dd id="os-status">Ładowanie…</dd></div>
+              <div><dt>Model</dt><dd id="model-status">Ładowanie…</dd></div>
+              <div><dt>Zadania w pamięci</dt><dd id="task-storage-status">Ładowanie…</dd></div>
+            </dl>
+            <h3 class="settings-subheading">Profile agentów i stan workerów</h3>
+            <p id="agent-error" class="status-error" aria-live="polite"></p>
+            <p id="agent-count" class="muted-count">Ładowanie profili…</p>
+            <ul id="agent-list" class="agent-grid" aria-label="Statusy profili i workerów"></ul>
+            <p class="work-limit-note">
+              Profile są konfiguracją, nie uruchomionymi procesami. Historia API jest przechowywana
+              w pamięci backendu i wygasa po bezczynności; lista po lewej dotyczy tej przeglądarki.
+            </p>
+          </section>
+
+          <footer class="footer">
+            <span>Debian 13 · niezależny interfejs roboczy</span>
+            <span>Nie jest to potwierdzenie bootowania systemu ani działania workerów.</span>
+          </footer>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
