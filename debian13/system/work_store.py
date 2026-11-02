@@ -46,6 +46,11 @@ class WorkStore:
                     at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS tasks_latest ON tasks(created_at DESC);
+                CREATE TABLE IF NOT EXISTS alex_submissions (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+                    remote_task_id TEXT NOT NULL,
+                    submitted_at TEXT NOT NULL
+                );
             """)
         os.chmod(self.db_path, 0o600)
 
@@ -125,3 +130,37 @@ class WorkStore:
                     (task_id, row["agent"], "task_cancelled", stamp),
                 )
         return self.get_task(task_id)
+
+    def get_alex_submission(self, task_id: str) -> dict | None:
+        with self._open() as db:
+            row = db.execute(
+                "SELECT remote_task_id, submitted_at FROM alex_submissions WHERE task_id=?",
+                (task_id,),
+            ).fetchone()
+        return {
+            "status": "accepted_by_remote_api",
+            "remoteTaskId": row["remote_task_id"],
+            "submittedAt": row["submitted_at"],
+            "agentExecutionVerified": False,
+            "pullRequestVerified": False,
+        } if row else None
+
+    def record_alex_submission(self, task_id: str, remote_task_id: str) -> dict:
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT status,agent FROM tasks WHERE id=?", (task_id,)
+            ).fetchone()
+            if row is None or row["status"] != "queued" or row["agent"] != "alex":
+                raise ValueError("Task no longer eligible for Alex dispatch.")
+            stamp = _now()
+            db.execute(
+                "INSERT OR IGNORE INTO alex_submissions(task_id,remote_task_id,submitted_at) "
+                "VALUES (?,?,?)", (task_id, remote_task_id, stamp)
+            )
+            db.execute(
+                "INSERT INTO events(task_id,agent,type,at) "
+                "SELECT ?,?,?,? WHERE changes() > 0",
+                (task_id, "alex", "task_accepted_by_remote_api", stamp)
+            )
+        return self.get_alex_submission(task_id)

@@ -119,6 +119,8 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getAgents: () => request('agents'),
     getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
+    getAlexCapabilities: () => request('alex/capabilities'),
+    dispatchToAlex: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/dispatch`, {method: 'POST'}),
     createTask: (task) => post('tasks', task),
     getTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}`),
     getEvents: () => request('events'),
@@ -312,6 +314,16 @@ function renderTasks(tasks) {
       reconnect.setAttribute('aria-label', `Pobierz status zadania ${task.id}`);
       reconnect.addEventListener('click', () => void refreshTaskStatus(task.id, reconnect));
       actions.append(reconnect);
+      if (task.agent === 'alex' && task.status === 'queued') {
+        const dispatch = document.createElement('button');
+        dispatch.type = 'button';
+        dispatch.className = 'task-action task-dispatch';
+        dispatch.textContent = 'Przekaż Alexowi';
+        dispatch.disabled = !alexDispatchSupported;
+        dispatch.setAttribute('aria-label', `Przekaż zadanie ${task.id} oryginalnemu Alexowi`);
+        dispatch.addEventListener('click', () => void dispatchWorkToAlex(task.id, dispatch));
+        actions.append(dispatch);
+      }
       if (['queued', 'running'].includes(task.status)) {
         const cancel = document.createElement('button');
         cancel.type = 'button';
@@ -418,6 +430,7 @@ function renderHistory(activeId = '') {
 }
 
 const api = createApiClient();
+let alexDispatchSupported = false;
 let activeSessionId = '';
 let activeChatController = null;
 let activeChatTaskId = '';
@@ -540,6 +553,44 @@ async function loadEvents() {
   }
 }
 
+async function refreshAlexCapabilities() {
+  alexDispatchSupported = false;
+  try {
+    const response = await api.getAlexCapabilities();
+    const state = response.alex;
+    alexDispatchSupported = state?.configured === true && state?.supported === true;
+    setText('alex-dispatch-state', alexDispatchSupported
+      ? 'Oryginalny Alex udostępnia protokół przekazania zadania. Nie potwierdzono jednak pracy modelu AI.'
+      : 'Oryginalny Alex nie udostępnia obecnie bezpiecznego wysyłania zadań. Przycisk przekazania jest zablokowany.');
+  } catch (error) {
+    setText('alex-dispatch-state', 'Nie można sprawdzić połączenia z oryginalnym Alexem: ' + error.message);
+  }
+  return alexDispatchSupported;
+}
+
+async function dispatchWorkToAlex(taskId, button) {
+  if (!alexDispatchSupported || button.disabled) return;
+  const approved = window.confirm(
+    'Czy przekazać to zadanie do oryginalnego Alexa? Nie oznacza to zgody na zakup, scalanie ani wykonywanie płatności.'
+  );
+  if (!approved) return;
+  button.disabled = true;
+  setText('work-connection-state', 'Weryfikacja odbioru zadania przez serwer Alexa…');
+  try {
+    const result = await api.dispatchToAlex(taskId);
+    if (!result.alexSubmission || result.executionStarted !== false) {
+      throw new ApiError('Brak potwierdzenia przyjęcia zadania przez oryginalne API Alexa.');
+    }
+    setText('work-connection-state', 'Oryginalny serwer Alexa przyjął zadanie. Wykonanie przez AI i PR pozostają niepotwierdzone.');
+    await refreshWork();
+  } catch (error) {
+    setText('tasks-error', error.message);
+    setText('work-connection-state', error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function refreshWork() {
   const button = document.getElementById('refresh-tasks');
   if (button?.disabled) return;
@@ -548,7 +599,9 @@ async function refreshWork() {
     button.textContent = 'Łączenie…';
   }
   setText('work-connection-state', 'Ponowne łączenie z API…');
-  const [tasksError, eventsError] = await Promise.all([loadTasks(), loadEvents()]);
+  const [tasksError, eventsError] = await Promise.all([loadTasks(), loadEvents(), refreshAlexCapabilities()]);
+  // The buttons were initially rendered before reading actual remote capabilities.
+  if (!tasksError) await loadTasks();
   const error = tasksError ?? eventsError;
   setText('work-connection-state', error
     ? error.status === 401

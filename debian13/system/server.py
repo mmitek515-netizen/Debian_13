@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 
 from work_store import WorkStore
+from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
@@ -40,6 +41,7 @@ RATE_LIMIT = 30
 TASK_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 TASK_DETAIL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")$")
 TASK_CANCEL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/cancel$")
+TASK_DISPATCH_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/dispatch$")
 WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
 
 PROFILES = {
@@ -350,6 +352,7 @@ class Debian13Server(http.server.ThreadingHTTPServer):
         self.workspace = Path(config["workspace"]).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.work_store = WorkStore(self.workspace)
+        self._alex_dispatch_lock = threading.Lock()
         self._rates: dict[str, tuple[float, int]] = {}
         self._rates_lock = threading.Lock()
         super().__init__(address, SystemHandler)
@@ -519,13 +522,24 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, {"events": self.server.work_store.list_events(),
                                   "storage": "sqlite"})
             return
+        if self.path == "/api/v1/alex/capabilities":
+            try:
+                status = alex_capabilities()
+            except (AlexHandoffError, ValueError):
+                status = {"configured": True, "supported": False,
+                          "agentRuntimeVerified": False, "reason": "alex_endpoint_unavailable"}
+            self._send_json(200, {"alex": status})
+            return
         match = TASK_DETAIL_PATH.fullmatch(self.path)
         if match:
             task = self.server.work_store.get_task(match.group(1))
             if task is None:
                 self._send_json(404, {"error": {"code": "task_not_found", "message": "Task not found."}})
             else:
-                self._send_json(200, {"task": task})
+                self._send_json(200, {
+                    "task": task, "alexSubmission":
+                    self.server.work_store.get_alex_submission(task["id"])
+                })
             return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
@@ -536,12 +550,38 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         request_id = str(uuid.uuid4())
         try:
+            dispatch = TASK_DISPATCH_PATH.fullmatch(self.path)
+            if dispatch:
+                if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
+                    self.close_connection = True
+                    raise ApiError(400, "unexpected_body", "Task dispatch takes no request body.")
+                task_id = dispatch.group(1)
+                with self.server._alex_dispatch_lock:
+                    existing = self.server.work_store.get_alex_submission(task_id)
+                    if existing:
+                        self._send_json(200, {"alexSubmission": existing,
+                                              "executionStarted": False})
+                        return
+                    task = self.server.work_store.get_task(task_id)
+                    if task is None:
+                        raise ApiError(404, "task_not_found", "Task not found.")
+                    receipt = submit_to_alex(task)
+                    submission = self.server.work_store.record_alex_submission(
+                        task_id, receipt["remoteTaskId"])
+                self._send_json(202, {"alexSubmission": submission,
+                                      "executionStarted": False,
+                                      "agentExecutionVerified": False})
+                return
             cancel = TASK_CANCEL_PATH.fullmatch(self.path)
             if cancel:
                 if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
                     self.close_connection = True
                     raise ApiError(400, "unexpected_body", "Task cancellation takes no request body.")
-                task = self.server.work_store.cancel_task(cancel.group(1))
+                with self.server._alex_dispatch_lock:
+                    if self.server.work_store.get_alex_submission(cancel.group(1)):
+                        raise ApiError(409, "already_handed_off",
+                                       "Task accepted by Alex API; local cancellation cannot recall it.")
+                    task = self.server.work_store.cancel_task(cancel.group(1))
                 if task is None:
                     raise ApiError(404, "task_not_found", "Task not found.")
                 self._send_json(200, {"task": task})
@@ -594,6 +634,16 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(404, {"error": {"code": "not_found", "requestId": request_id}})
         except ApiError as exc:
             self._send_json(exc.status, {"error": {"code": exc.code, "message": str(exc), "requestId": request_id}})
+        except AlexHandoffError as exc:
+            code = 409 if exc.code in ("invalid_task", "task_already_executed",
+                                       "dispatch_not_enabled", "unsupported_capability",
+                                       "submission_unverified") else 503
+            self._send_json(code, {"error": {"code": exc.code, "message": str(exc),
+                                             "requestId": request_id}})
+        except ValueError:
+            self._send_json(409, {"error": {"code": "dispatch_conflict",
+                                             "message": "Task cannot be dispatched.",
+                                             "requestId": request_id}})
         except (BrokenPipeError, ConnectionResetError):
             return
 
