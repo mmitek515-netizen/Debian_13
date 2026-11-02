@@ -34,6 +34,11 @@ def api_base() -> str:
     return value
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def read_api(path: str) -> dict:
     token = os.environ.get("DEBIAN13_API_TOKEN", "")
     if len(token) < 32 or any(ord(c) < 33 or ord(c) > 126 for c in token):
@@ -43,7 +48,7 @@ def read_api(path: str) -> dict:
         headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
         method="GET",
     )
-    opener = urllib.request.build_opener(urllib.request.HTTPHandler, urllib.request.HTTPSHandler)
+    opener = urllib.request.build_opener(urllib.request.HTTPHandler, urllib.request.HTTPSHandler, NoRedirect)
     with opener.open(request, timeout=10) as response:
         raw = response.read(MAX_RESPONSE + 1)
     if len(raw) > MAX_RESPONSE:
