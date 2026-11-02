@@ -50,6 +50,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Ollama Compose integration without downloading model weights
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+        run: docker compose -f debian13/system/compose.yaml -f debian13/system/compose.ollama.yaml config --quiet
       - name: Build isolated Debian 13 service
         run: docker compose -f debian13/system/compose.yaml build
         env:
@@ -72,3 +76,4 @@ jobs:
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/v1/diagnostics)
           test "$status" = "401"
           curl --fail --silent --show-error -H "Authorization: Bearer $DEBIAN13_API_TOKEN" http://127.0.0.1:8080/v1/profiles >/dev/null
+          docker compose -f debian13/system/compose.yaml exec -T debian13-system python3 /opt/debian13/system/integration_smoke.py
