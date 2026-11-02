@@ -255,9 +255,11 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
     model = config.get("vision_model_name", "") if image is not None else config["model_name"]
     if not model:
         raise ApiError(503, "vision_not_configured", "A vision model is not configured.")
+    is_ollama = urllib.parse.urlsplit(config["model_chat_url"]).hostname == "ollama"
     user_content = message if image is None else [
         {"type": "text", "text": message},
-        {"type": "image_url", "image_url": {"url": image}},
+        # Ollama's /v1 Chat Completions docs use a string image_url.
+        {"type": "image_url", "image_url": image if is_ollama else {"url": image}},
     ]
     payload = json.dumps({
         "model": model,
