@@ -45,3 +45,30 @@ jobs:
         run: python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
       - name: Test Debian 13 UI proxy
         run: node --test debian13/ui/dev_server.test.mjs
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated Debian 13 service
+        run: docker compose -f debian13/system/compose.yaml build
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+      - name: Start and probe real service
+        shell: bash
+        env:
+          DEBIAN13_API_TOKEN: ci-test-token-at-least-32-characters-long
+        run: |
+          set -euo pipefail
+          docker compose -f debian13/system/compose.yaml up -d
+          trap 'docker compose -f debian13/system/compose.yaml logs --no-color; docker compose -f debian13/system/compose.yaml down -v' EXIT
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:8080/healthz >/dev/null
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/v1/diagnostics)
+          test "$status" = "401"
+          curl --fail --silent --show-error -H "Authorization: Bearer $DEBIAN13_API_TOKEN" http://127.0.0.1:8080/v1/profiles >/dev/null
