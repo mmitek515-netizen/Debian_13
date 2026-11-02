@@ -98,7 +98,7 @@ class UiHandler(SimpleHTTPRequestHandler):
             api_port = int(os.environ.get("DEBIAN13_API_PORT", "8765"))
             if not 1 <= api_port <= 65535:
                 raise ValueError("Invalid API port")
-            timeout = MAX_STREAM_SECONDS if path == API_STREAM_PATH else 5
+            timeout = MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision") else 5
             connection = http.client.HTTPConnection("127.0.0.1", api_port, timeout=timeout)
             headers = {}
             token = os.environ.get("DEBIAN13_API_TOKEN", "")
