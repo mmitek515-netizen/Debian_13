@@ -200,7 +200,8 @@ function connectionState(state, label) {
 function modelStatusLabel(model) {
   const statusLabels = {
     not_configured: 'Brak skonfigurowanego modelu',
-    unavailable: 'Ollama niedostępna',
+    unavailable: 'Model niedostępny',
+    configured: 'Model skonfigurowany (połączenie jeszcze niezweryfikowane)',
     model_missing: 'Model niedostępny',
     model_available: 'Model dostępny lokalnie',
   };
@@ -931,8 +932,10 @@ function bindChatForm() {
       }
       message.value = '';
       feedback.textContent = responseSource === 'ollama'
-        ? 'Odpowiedź modelu lokalnego; rozmowa zapisana w pamięci API.'
-        : 'Odpowiedź lokalnej obsługi polecenia API.';
+        ? 'Odpowiedź lokalnej Ollamy; API nie zapisuje historii sesji.'
+        : responseSource === 'model_provider'
+          ? 'Odpowiedź podłączonego dostawcy AI; brak zapisu historii sesji.'
+          : 'Odpowiedź API.';
     } catch (error) {
       if (error?.name === 'AbortError') {
         if (responseBubble) responseBubble.heading.textContent = `${agentName} · strumień przerwany lokalnie`;
