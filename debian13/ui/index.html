@@ -215,6 +215,15 @@
               <div><dt>Model</dt><dd id="model-status">Ładowanie…</dd></div>
               <div><dt>Zadania w pamięci</dt><dd id="task-storage-status">Ładowanie…</dd></div>
             </dl>
+            <h3 class="settings-subheading">Integracje: Codex, MCP i GPT Actions</h3>
+            <p class="work-limit-note">
+              Statusy pochodzą z API. Dostępny plik integracji nie oznacza aktywnego
+              połączenia z usługą zewnętrzną. Konfiguracja i testy są wymagane.
+            </p>
+            <p id="integration-error" class="status-error" aria-live="polite"></p>
+            <ul id="integration-list" class="agent-grid" aria-label="Stan integracji z Codex MCP GPT Actions">
+              <li class="empty-state">Pobieranie konfiguracji integracji…</li>
+            </ul>
             <h3 class="settings-subheading">Profile agentów i stan workerów</h3>
             <p id="agent-error" class="status-error" aria-live="polite"></p>
             <p id="agent-count" class="muted-count">Ładowanie profili…</p>
