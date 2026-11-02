@@ -20,6 +20,7 @@ TOOLS = {
     "debian13_profiles": ("List configured AI profiles and their real active flags.", "/v1/profiles"),
     "debian13_diagnostics": ("Read authenticated runtime diagnostics; no secrets.", "/v1/diagnostics"),
     "debian13_integrations": ("Read the actual integration configuration status.", "/v1/integrations"),
+    "debian13_work_tasks": ("Read persistent review-only Work task queue; no task execution.", "/api/v1/tasks"),
     "alex_existing_status": (
         "Read live connectivity of the ORIGINAL owner's Alex task registry; no agent execution.", "alex:status"),
     "alex_existing_tasks": (
