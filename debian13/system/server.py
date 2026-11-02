@@ -375,8 +375,8 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             ("done", {"agent": profile, "source": source, "model": model}),
         ]
         body = "".join(
-            "event: " + event + "\\n" +
-            "data: " + json.dumps(payload, ensure_ascii=False) + "\\n\\n"
+            "event: " + event + "\n" +
+            "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
             for event, payload in frames
         ).encode("utf-8")
         self.send_response(200)
