@@ -17,6 +17,7 @@ API_PATHS = {
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/integrations"),
     ("GET", "/api/v1/tasks"),
+    ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/events"),
     ("POST", "/api/v1/chat"),
     ("POST", "/api/v1/chat/stream"),
