@@ -206,3 +206,14 @@ test('real loopback proxy rejects oversized writes before forwarding', async (t)
   assert.deepEqual(await response.json(), { error: 'Żądanie przekracza limit rozmiaru.' });
   assert.equal(upstream.requests.length, 0);
 });
+
+test('integrations panel proxy maps authenticated UI route to the real backend API', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const baseUrl = await startUiProxy(t, upstream.port, 'fixture-only-operator-token');
+  const response = await fetch(`${baseUrl}/api/v1/integrations`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, path: '/v1/integrations' });
+  assert.equal(upstream.requests.length, 1);
+  assert.equal(upstream.requests[0].url, '/v1/integrations');
+  assert.equal(upstream.requests[0].authorization, 'Bearer fixture-only-operator-token');
+});
