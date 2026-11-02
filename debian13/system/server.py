@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 
 from work_store import WorkStore
+from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 
 MAX_BODY_BYTES = 16 * 1024
@@ -506,6 +507,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 },
                 "task_state": "Brak uruchomionych workerów",
             })
+            return
+        if self.path == "/api/v1/original-agents":
+            self._send_json(200, original_agents_report())
             return
         if self.path == "/api/v1/agents":
             self._send_json(200, {"agents": [

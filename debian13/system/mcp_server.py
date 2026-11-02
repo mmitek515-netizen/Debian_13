@@ -21,6 +21,7 @@ TOOLS = {
     "debian13_diagnostics": ("Read authenticated runtime diagnostics; no secrets.", "/v1/diagnostics"),
     "debian13_integrations": ("Read the actual integration configuration status.", "/v1/integrations"),
     "debian13_work_tasks": ("Read persistent review-only Work task queue; no task execution.", "/api/v1/tasks"),
+    "debian13_original_agents": ("Check connection status of four original owner agents; profiles do not prove active AI.", "/api/v1/original-agents"),
     "alex_existing_status": (
         "Read live connectivity of the ORIGINAL owner's Alex task registry; no agent execution.", "alex:status"),
     "alex_existing_tasks": (

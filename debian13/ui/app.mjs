@@ -117,6 +117,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
   return Object.freeze({
     getStatus: () => request('status'),
     getAgents: () => request('agents'),
+    getOriginalAgents: () => request('original-agents'),
     getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
     getAlexCapabilities: () => request('alex/capabilities'),
@@ -453,6 +454,44 @@ async function loadStatus() {
   }
 }
 
+async function loadOriginalAgents() {
+  const list = document.getElementById('original-agent-list');
+  if (!list) return;
+  setText('original-agent-error', '');
+  try {
+    const response = await api.getOriginalAgents();
+    if (!Array.isArray(response.agents) || response.agents.length !== 4) {
+      throw new ApiError('Źródło nie podało kompletu czterech oryginalnych agentów.');
+    }
+    const fragment = document.createDocumentFragment();
+    for (const agent of response.agents) {
+      const item = document.createElement('li');
+      item.className = 'agent-card';
+      const heading = document.createElement('strong');
+      heading.textContent = agent.name;
+      const role = document.createElement('p');
+      role.className = 'agent-role';
+      role.textContent = agent.role;
+      const status = document.createElement('p');
+      status.className = 'agent-state';
+      status.textContent = agent.workerVerified === true
+        ? 'Zweryfikowany proces AI'
+        : response.registryReachable
+          ? 'Rejestr źródłowy dostępny · praca AI niepotwierdzona'
+          : 'Oryginalny agent niepodłączony';
+      const details = document.createElement('p');
+      details.className = 'worker-state';
+      details.textContent = `Zadania w rejestrze: ${Number(agent.tasksInRegistry) || 0}; uruchomione workery: niepotwierdzone`;
+      item.append(heading, role, status, details);
+      fragment.append(item);
+    }
+    list.replaceChildren(fragment);
+  } catch (error) {
+    list.replaceChildren();
+    setText('original-agent-error', error.message);
+  }
+}
+
 async function loadAgents() {
   setText('agent-count', 'Ładowanie profili…');
   setText('agent-error', '');
@@ -664,7 +703,7 @@ async function cancelWorkTask(taskId, button) {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadStatus(), loadAgents(), loadIntegrations(), loadTasks()]);
+  await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadTasks()]);
 }
 
 async function loadHistory(sessionId) {
