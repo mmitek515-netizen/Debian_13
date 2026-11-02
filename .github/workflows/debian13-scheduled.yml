@@ -1,0 +1,59 @@
+name: Debian 13 scheduled integration checks
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: debian13-scheduled-integration
+  cancel-in-progress: false
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout Debian 13 migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: migration/debian13-codespaces
+          persist-credentials: false
+      - name: Test standalone API on host
+        run: python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
+      - name: Test UI proxy on host
+        run: node --test debian13/ui/dev_server.test.mjs
+      - name: Build and start Debian 13 container
+        env:
+          DEBIAN13_API_TOKEN: scheduled-test-token-at-least-32-characters-long
+        run: |
+          set -euo pipefail
+          docker compose -f debian13/system/compose.yaml build
+          docker compose -f debian13/system/compose.yaml up -d
+      - name: Verify live service and authentication
+        env:
+          DEBIAN13_API_TOKEN: scheduled-test-token-at-least-32-characters-long
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/healthz >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/v1/profiles)" = "401"
+          curl -fsS -H "Authorization: Bearer $DEBIAN13_API_TOKEN" http://127.0.0.1:8080/v1/profiles >/dev/null
+      - name: Write result summary
+        if: always()
+        run: |
+          echo '## Debian 13 scheduled integration' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This run checks code and a temporary container; it does **not** launch autonomous AI agents or grant root.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'GitHub-hosted runners stop after the job. A permanent agent runtime requires a separate host and configured model provider.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Show diagnostics on failure
+        if: failure()
+        env:
+          DEBIAN13_API_TOKEN: scheduled-test-token-at-least-32-characters-long
+        run: docker compose -f debian13/system/compose.yaml ps
+      - name: Stop temporary container
+        if: always()
+        env:
+          DEBIAN13_API_TOKEN: scheduled-test-token-at-least-32-characters-long
+        run: docker compose -f debian13/system/compose.yaml down -v
