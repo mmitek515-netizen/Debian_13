@@ -10,6 +10,7 @@ import http.server
 import json
 import os
 import platform
+import re
 import selectors
 import shlex
 import signal
@@ -22,6 +23,8 @@ import urllib.request
 import uuid
 from pathlib import Path
 
+from work_store import WorkStore
+
 MAX_BODY_BYTES = 16 * 1024
 MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -33,6 +36,11 @@ COMMAND_TIMEOUT_SECONDS = 10
 CHAT_TIMEOUT_SECONDS = 110
 RATE_WINDOW_SECONDS = 60
 RATE_LIMIT = 30
+
+TASK_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+TASK_DETAIL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")$")
+TASK_CANCEL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/cancel$")
+WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
 
 PROFILES = {
     "aria": {
@@ -341,6 +349,7 @@ class Debian13Server(http.server.ThreadingHTTPServer):
         self.config = config
         self.workspace = Path(config["workspace"]).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
+        self.work_store = WorkStore(self.workspace)
         self._rates: dict[str, tuple[float, int]] = {}
         self._rates_lock = threading.Lock()
         super().__init__(address, SystemHandler)
@@ -503,10 +512,20 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             ]})
             return
         if self.path == "/api/v1/tasks":
-            self._send_json(200, {"tasks": []})
+            self._send_json(200, {"tasks": self.server.work_store.list_tasks(),
+                                  "storage": "sqlite", "workersRunning": 0})
             return
         if self.path == "/api/v1/events":
-            self._send_json(200, {"events": []})
+            self._send_json(200, {"events": self.server.work_store.list_events(),
+                                  "storage": "sqlite"})
+            return
+        match = TASK_DETAIL_PATH.fullmatch(self.path)
+        if match:
+            task = self.server.work_store.get_task(match.group(1))
+            if task is None:
+                self._send_json(404, {"error": {"code": "task_not_found", "message": "Task not found."}})
+            else:
+                self._send_json(200, {"task": task})
             return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
@@ -517,7 +536,34 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         request_id = str(uuid.uuid4())
         try:
+            cancel = TASK_CANCEL_PATH.fullmatch(self.path)
+            if cancel:
+                if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
+                    self.close_connection = True
+                    raise ApiError(400, "unexpected_body", "Task cancellation takes no request body.")
+                task = self.server.work_store.cancel_task(cancel.group(1))
+                if task is None:
+                    raise ApiError(404, "task_not_found", "Task not found.")
+                self._send_json(200, {"task": task})
+                return
             data = self._read_json(MAX_VISION_BODY_BYTES if self.path == "/v1/vision" else MAX_BODY_BYTES)
+            if self.path == "/api/v1/tasks":
+                if set(data) != {"agent", "kind", "title", "description"}:
+                    raise ApiError(400, "invalid_task", "Required: agent, kind, title, description.")
+                agent, kind = data["agent"], data["kind"]
+                title, description = data["title"], data["description"]
+                if (not isinstance(agent, str) or agent not in PROFILES
+                        or not isinstance(kind, str) or kind not in WORK_KINDS
+                        or not isinstance(title, str) or not 1 <= len(title.strip()) <= 120
+                        or not isinstance(description, str) or not 1 <= len(description.strip()) <= 2000):
+                    raise ApiError(400, "invalid_task", "Invalid task fields or length.")
+                try:
+                    task = self.server.work_store.create_task(
+                        kind, agent, title.strip(), description.strip())
+                except ValueError as exc:
+                    raise ApiError(409, "task_limit", "Task ledger is at capacity.") from exc
+                self._send_json(201, {"task": task, "executionStarted": False})
+                return
             if self.path in ("/v1/terminal", "/api/v1/terminal"):
                 result = run_terminal(data.get("command"), self.server.workspace)
                 if self.path == "/api/v1/terminal":

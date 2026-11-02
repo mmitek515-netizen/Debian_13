@@ -151,9 +151,33 @@
               Work połączy się z API po otwarciu widoku.
             </p>
             <p class="work-limit-note">
-              Ten widok pokazuje tylko zadania zwrócone przez API. Kontrakt v1 nie udostępnia
-              planów wieloetapowych, zatwierdzania kroków ani uruchamiania Work.
+              Zadania są trwale zapisywane w API do przeglądu. Wysłanie zadania
+              NIE uruchamia agenta AI, nie wykonuje kodu i nie zatwierdza zakupów.
+              Każdy etap wykonania wymaga osobnego, rzeczywiście działającego workera.
             </p>
+            <form id="work-create-form" class="work-task-form" aria-labelledby="work-create-title">
+              <h3 id="work-create-title">Dodaj zadanie do kolejki</h3>
+              <label for="work-task-agent">Agent odpowiedzialny za plan</label>
+              <select id="work-task-agent" required>
+                <option value="alex">Alex — architektura</option>
+                <option value="aria">Aria — modele AI</option>
+                <option value="astyria">Astyria — interfejs</option>
+                <option value="aurelius">Aurelius — bezpieczeństwo</option>
+              </select>
+              <label for="work-task-kind">Rodzaj zadania</label>
+              <select id="work-task-kind" required>
+                <option value="development">Rozwój</option>
+                <option value="bugfix">Naprawa</option>
+                <option value="audit">Audyt</option>
+                <option value="research">Analiza</option>
+              </select>
+              <label for="work-task-title">Tytuł</label>
+              <input id="work-task-title" maxlength="120" required placeholder="Np. Dokończ API zadań Debian 13" />
+              <label for="work-task-description">Zakres i kryteria ukończenia</label>
+              <textarea id="work-task-description" rows="3" maxlength="2000" required placeholder="Co należy wykonać i jak potwierdzić efekt?"></textarea>
+              <button class="button button-primary" id="work-create-submit" type="submit">Zapisz do przeglądu</button>
+              <p id="work-create-feedback" role="status" aria-live="polite" class="form-feedback"></p>
+            </form>
             <p id="tasks-error" class="status-error" aria-live="polite"></p>
             <p id="tasks-count" class="muted-count">Ładowanie…</p>
             <ul id="task-list" class="task-list" aria-live="polite">
