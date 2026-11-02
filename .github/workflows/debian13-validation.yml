@@ -16,24 +16,32 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     container: debian:trixie
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Debian release and workspace isolation
+      - name: Install Debian 13 test dependencies
         shell: bash
         run: |
           set -euo pipefail
           . /etc/os-release
           test "$VERSION_ID" = "13"
           apt-get update
-          apt-get install -y --no-install-recommends python3
+          apt-get install -y --no-install-recommends python3 nodejs npm
+      - name: Validate Codespaces workspace isolation
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import json
           from pathlib import Path
           config = json.loads(Path(".devcontainer/debian13/devcontainer.json").read_text())
           expected = "/workspaces/${localWorkspaceFolderBasename}/debian13"
-          assert config["workspaceFolder"] == expected, "Workspace must target debian13"
-          assert Path("debian13/README.md").is_file(), "Workspace directory must exist"
+          assert config["workspaceFolder"] == expected
+          assert Path("debian13/README.md").is_file()
           assert config["portsAttributes"]["3000"]["visibility"] == "private"
-          print("Debian 13 configuration and independent workspace verified")
+          print("Debian 13 isolated workspace verified")
           PY
+      - name: Test standalone Debian 13 API
+        run: python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
+      - name: Test Debian 13 UI proxy
+        run: node --test debian13/ui/dev_server.test.mjs
