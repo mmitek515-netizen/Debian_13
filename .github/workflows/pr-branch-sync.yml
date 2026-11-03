@@ -67,7 +67,7 @@ jobs:
                   diff = api('GET', f'compare/{base_sha}...{head_sha}')
                   if diff.get('behind_by', 0) == 0:
                       print(f'PR #{n}: already current'); skipped += 1; continue
-                  if pr.get('mergeable') is not True or pr.get('mergeable_state') == 'dirty':
+                  if pr.get('mergeable') is False or pr.get('mergeable_state') == 'dirty':
                       print(f'PR #{n}: conflicts or mergeability unknown; skipped'); skipped += 1; continue
                   api('PUT', f'pulls/{n}/update-branch', {'expected_head_sha': head_sha})
                   print(f'PR #{n}: submitted safe branch update')
