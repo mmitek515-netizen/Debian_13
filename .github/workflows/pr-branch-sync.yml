@@ -40,6 +40,7 @@ jobs:
               })
               with urllib.request.urlopen(req, timeout=25) as res:
                   return json.load(res)
+          base_cache = {}
           prs = []
           for page in range(1, 6):
               batch = api('GET', f'pulls?state=open&per_page=100&page={page}')
@@ -57,7 +58,12 @@ jobs:
                   print(f'PR #{n}: same branch; skipped'); skipped += 1; continue
               try:
                   pr = api('GET', f'pulls/{n}')
-                  head_sha, base_sha = pr['head']['sha'], pr['base']['sha']
+                  head_sha = pr['head']['sha']
+                  base_ref = pr['base']['ref']
+                  if base_ref not in base_cache:
+                      from urllib.parse import quote
+                      base_cache[base_ref] = api('GET', 'branches/' + quote(base_ref, safe=''))['commit']['sha']
+                  base_sha = base_cache[base_ref]
                   diff = api('GET', f'compare/{base_sha}...{head_sha}')
                   if diff.get('behind_by', 0) == 0:
                       print(f'PR #{n}: already current'); skipped += 1; continue
