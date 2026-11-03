@@ -176,6 +176,25 @@ class UiHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        origin = self.headers.get("Origin", "")
+        host = self.headers.get("Host", "")
+        try:
+            parsed_origin = urlsplit(origin)
+            same_origin = (
+                bool(origin)
+                and parsed_origin.scheme in {"http", "https"}
+                and parsed_origin.netloc.casefold() == host.casefold()
+                and not parsed_origin.username
+                and not parsed_origin.password
+                and not parsed_origin.path
+                and not parsed_origin.query
+                and not parsed_origin.fragment
+            )
+        except ValueError:
+            same_origin = False
+        if not same_origin:
+            self._send_error_json(403, "Żądanie API musi pochodzić z tego samego originu.")
+            return
         self._proxy_api()
 
     def log_message(self, format: str, *args: object) -> None:
