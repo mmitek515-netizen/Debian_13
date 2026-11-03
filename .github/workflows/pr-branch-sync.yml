@@ -1,0 +1,85 @@
+name: Safely sync open PR branches
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/pr-branch-sync.yml']
+  schedule:
+    - cron: '47 4 * * *'
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: pr-branch-sync-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Update conflict-free PR branches from their base (no auto-merge)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          MAX_UPDATES: '10'
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          repo = os.environ['GH_REPO']
+          token = os.environ['GH_TOKEN']
+          limit = int(os.environ.get('MAX_UPDATES', '10'))
+          updated = skipped = errors = 0
+          def api(method, endpoint, payload=None):
+              url = f'https://api.github.com/repos/{repo}/{endpoint}'
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = urllib.request.Request(url, data=data, method=method, headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'safe-pr-branch-sync',
+              })
+              with urllib.request.urlopen(req, timeout=25) as res:
+                  return json.load(res)
+          base_cache = {}
+          prs = []
+          for page in range(1, 6):
+              batch = api('GET', f'pulls?state=open&per_page=100&page={page}')
+              prs.extend(batch)
+              if len(batch) < 100: break
+          print(f'Found {len(prs)} open PRs in {repo}')
+          for item in prs:
+              if updated >= limit: break
+              n = item['number']
+              head = item['head']
+              base = item['base']
+              if not head.get('repo') or head['repo']['full_name'] != repo:
+                  print(f'PR #{n}: external fork; skipped'); skipped += 1; continue
+              if head.get('ref') == base.get('ref'):
+                  print(f'PR #{n}: same branch; skipped'); skipped += 1; continue
+              try:
+                  pr = api('GET', f'pulls/{n}')
+                  head_sha = pr['head']['sha']
+                  base_ref = pr['base']['ref']
+                  if base_ref not in base_cache:
+                      from urllib.parse import quote
+                      base_cache[base_ref] = api('GET', 'branches/' + quote(base_ref, safe=''))['commit']['sha']
+                  base_sha = base_cache[base_ref]
+                  diff = api('GET', f'compare/{base_sha}...{head_sha}')
+                  if diff.get('behind_by', 0) == 0:
+                      print(f'PR #{n}: already current'); skipped += 1; continue
+                  if pr.get('mergeable') is False or pr.get('mergeable_state') == 'dirty':
+                      print(f'PR #{n}: conflicts or mergeability unknown; skipped'); skipped += 1; continue
+                  api('PUT', f'pulls/{n}/update-branch', {'expected_head_sha': head_sha})
+                  print(f'PR #{n}: submitted safe branch update')
+                  updated += 1
+              except urllib.error.HTTPError as exc:
+                  print(f'PR #{n}: API HTTP {exc.code}; not modified')
+                  errors += 1
+              except Exception as exc:
+                  print(f'PR #{n}: {type(exc).__name__}; not modified')
+                  errors += 1
+          summary = f'PR branch sync: updated={updated}, skipped={skipped}, errors={errors}; no PR merged into its base.'
+          print(summary)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f: f.write('## ' + summary + '\n')
+          if errors: raise SystemExit('Some PRs could not be synced; review permissions/conflicts')
+          PY
