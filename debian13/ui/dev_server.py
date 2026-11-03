@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 UI_DIRECTORY = Path(__file__).resolve().parent
 API_PATHS = {
     ("GET", "/api/v1/status"),
+    ("GET", "/api/v1/ollama"),
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
     ("GET", "/api/v1/integrations"),
@@ -21,6 +22,8 @@ API_PATHS = {
     ("GET", "/api/v1/tasks"),
     ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/events"),
+    ("GET", "/api/v1/sessions"),
+    ("GET", "/api/v1/original-agent-attempts"),
     ("POST", "/api/v1/chat"),
     ("POST", "/api/v1/chat/stream"),
     ("POST", "/api/v1/vision"),
@@ -176,6 +179,25 @@ class UiHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self) -> None:
+        origin = self.headers.get("Origin", "")
+        host = self.headers.get("Host", "")
+        try:
+            parsed_origin = urlsplit(origin)
+            same_origin = (
+                bool(origin)
+                and parsed_origin.scheme in {"http", "https"}
+                and parsed_origin.netloc.casefold() == host.casefold()
+                and not parsed_origin.username
+                and not parsed_origin.password
+                and not parsed_origin.path
+                and not parsed_origin.query
+                and not parsed_origin.fragment
+            )
+        except ValueError:
+            same_origin = False
+        if not same_origin:
+            self._send_error_json(403, "Żądanie API musi pochodzić z tego samego originu.")
+            return
         self._proxy_api()
 
     def log_message(self, format: str, *args: object) -> None:

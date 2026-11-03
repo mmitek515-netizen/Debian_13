@@ -59,10 +59,15 @@ class IntegrationTests(unittest.TestCase):
         })
         self.assertEqual(initialized["result"]["protocolVersion"], mcp_server.PROTOCOL_VERSION)
         listed = mcp_server.response({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual({tool["name"] for tool in listed["result"]["tools"]},
-                         {"debian13_profiles", "debian13_diagnostics", "debian13_integrations",
-                          "alex_existing_status", "alex_existing_tasks", "debian13_work_tasks",
-                          "debian13_original_agents"})
+        expected_tools = {
+            "debian13_profiles", "debian13_diagnostics", "debian13_integrations",
+            "alex_existing_status", "alex_existing_tasks", "debian13_work_tasks",
+            "debian13_original_agents",
+        }
+        self.assertEqual({tool["name"] for tool in listed["result"]["tools"]}, expected_tools)
+        integration_docs = (SYSTEM / "INTEGRATIONS.md").read_text(encoding="utf-8")
+        for tool in expected_tools:
+            self.assertIn(f"`{tool}`", integration_docs)
         with patch.dict(os.environ, {
             "DEBIAN13_SYSTEM_API_URL": f"http://127.0.0.1:{self.api.server_port}",
             "DEBIAN13_API_TOKEN": TOKEN,

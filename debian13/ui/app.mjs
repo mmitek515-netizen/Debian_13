@@ -21,8 +21,14 @@ function apiErrorMessage(payload, status) {
   if (status === 401) return 'Brak autoryzacji API (401). Skonfiguruj DEBIAN13_API_TOKEN wyłącznie po stronie serwera proxy.';
   if (status === 403) return 'API odrzuciło uprawnienia (403). Sprawdź dostęp operatora.';
   if (status === 404) return 'Backend nie udostępnia tego endpointu (404).';
+  if (payload?.error?.code === 'agent_disconnected') return payload.error.message;
+  if (payload?.error?.code === 'connection_refused') return payload.error.message;
+  if (payload?.error?.code === 'model_not_found') return payload.error.message;
+  if (payload?.error?.code === 'out_of_memory') return payload.error.message;
   return typeof payload?.error === 'string'
     ? payload.error
+    : typeof payload?.error?.message === 'string'
+      ? payload.error.message
     : `Żądanie nie powiodło się (HTTP ${status}).`;
 }
 
@@ -116,8 +122,10 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
 
   return Object.freeze({
     getStatus: () => request('status'),
+    getOllamaStatus: () => request('ollama'),
     getAgents: () => request('agents'),
     getOriginalAgents: () => request('original-agents'),
+    getOriginalAgentAttempts: () => request('original-agent-attempts'),
     getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
     getAlexCapabilities: () => request('alex/capabilities'),
@@ -126,6 +134,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}`),
     getEvents: () => request('events'),
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
+    getSessions: () => request('sessions'),
     cancelTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     chatStream,
     vision: (agent, message, image) => post('vision', { profile: agent, message, image }),
@@ -207,6 +216,10 @@ function modelStatusLabel(model) {
     unavailable: 'Model niedostępny',
     configured: 'Model skonfigurowany (połączenie jeszcze niezweryfikowane)',
     model_missing: 'Model niedostępny',
+    model_not_found: 'Model Ollama niepobrany',
+    connection_refused: 'Ollama nie odpowiada',
+    unavailable: 'Ollama niedostępna',
+    invalid_response: 'Nieprawidłowa odpowiedź Ollamy',
     model_available: 'Model dostępny lokalnie',
   };
   const label = statusLabels[model?.status] ?? 'Stan modelu nieznany';
@@ -258,7 +271,11 @@ function renderTranscriptMessages(messages) {
   for (const message of messages) {
     if (!['user', 'assistant'].includes(message.role) || typeof message.content !== 'string') continue;
     const isUser = message.role === 'user';
-    const name = AGENT_PROFILES.find((agent) => agent.id === message.agent)?.name ?? 'Agent';
+    const name = isUser
+      ? (message.channel === 'all' ? 'Wszyscy' : 'Ollama lokalna')
+      : message.source === 'ollama'
+        ? 'Ollama lokalna'
+        : AGENT_PROFILES.find((agent) => agent.id === message.agent)?.name ?? 'Agent';
     appendTranscript(
       isUser ? 'user' : 'assistant',
       isUser ? `Ty · ${name}` : `${name} · ${message.source ?? 'API'}`,
@@ -430,6 +447,20 @@ function renderHistory(activeId = '') {
   }
 }
 
+async function refreshChatHistory(activeId = activeSessionId) {
+  try {
+    const payload = await api.getSessions();
+    if (!Array.isArray(payload.sessions)) throw new ApiError('Nieprawidłowy format historii sesji.');
+    writeHistory(payload.sessions.map((session) => ({
+      id: session.id,
+      title: session.title || 'Nowa rozmowa',
+    })));
+  } catch {
+    // Keep the browser-side index available when using a compatible older backend.
+  }
+  renderHistory(activeId);
+}
+
 const api = createApiClient();
 let alexDispatchSupported = false;
 let activeSessionId = '';
@@ -486,6 +517,30 @@ async function loadOriginalAgents() {
       fragment.append(item);
     }
     list.replaceChildren(fragment);
+    const attemptsList = document.getElementById('original-agent-attempts');
+    if (attemptsList) {
+      const attempts = await api.getOriginalAgentAttempts();
+      const rows = document.createDocumentFragment();
+      for (const attempt of attempts.attempts ?? []) {
+        const row = document.createElement('li');
+        row.className = 'event-item';
+        const agentName = AGENT_PROFILES.find((profile) => profile.id === attempt.agent)?.name ?? attempt.agent;
+        const detail = document.createElement('span');
+        detail.textContent = `${agentName} · ${attempt.status}`;
+        const time = document.createElement('span');
+        time.className = 'event-metadata';
+        time.textContent = attempt.at;
+        row.append(detail, time);
+        rows.append(row);
+      }
+      if (!rows.childNodes.length) {
+        const empty = document.createElement('li');
+        empty.className = 'empty-state';
+        empty.textContent = 'Brak prób rozmowy.';
+        rows.append(empty);
+      }
+      attemptsList.replaceChildren(rows);
+    }
   } catch (error) {
     list.replaceChildren();
     setText('original-agent-error', error.message);
@@ -718,6 +773,11 @@ async function loadHistory(sessionId) {
     } catch {
       setText('chat-feedback', 'Historia dostępna do końca tej karty przeglądarki.');
     }
+    const priorChannel = payload.messages.find((message) => message.role === 'user')?.channel;
+    const channelSelect = document.getElementById('chat-agent');
+    if (channelSelect && ['ollama', 'all', 'aria', 'alex', 'astyria', 'aurelius'].includes(priorChannel)) {
+      channelSelect.value = priorChannel;
+    }
     renderTranscriptMessages(payload.messages);
     renderHistory(activeSessionId);
     showView('chat');
@@ -742,6 +802,7 @@ function recordHistory(sessionId, title) {
   } catch {
     setText('chat-feedback', 'Sesja działa, ale nie może zostać zapisana w karcie przeglądarki.');
   }
+  void refreshChatHistory(sessionId);
 }
 
 function showView(view) {
@@ -810,6 +871,7 @@ function bindNavigation() {
     button.addEventListener('click', () => {
       showView(button.dataset.view);
       if (button.dataset.view === 'work') void refreshWork();
+      if (button.dataset.view === 'settings') void refreshDashboard();
       setMobileSidebar(false);
     });
   });
@@ -889,7 +951,6 @@ function bindChatForm() {
   const thumbnail = document.getElementById('chat-image-thumbnail');
   const fileName = document.getElementById('chat-image-name');
   let previewUrl = '';
-  let visionBusy = false;
   const clearAttachment = () => {
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = '';
@@ -931,35 +992,11 @@ function bindChatForm() {
     const stop = document.getElementById('chat-stop');
     const feedback = document.getElementById('chat-feedback');
     const text = message?.value.trim();
-    if (!text || !agent || !feedback || activeChatController || visionBusy) return;
+    if (!text || !agent || !feedback || activeChatController) return;
     const file = attachment?.files?.[0] ?? null;
     if (file) {
-      visionBusy = true;
-      submit.disabled = true;
-      const name = AGENT_PROFILES.find((profile) => profile.id === agent.value)?.name ?? agent.value;
-      appendTranscript('user', `Ty · ${name} · zdjęcie`, `${text} (dołączono obraz)`);
-      const answer = appendTranscript('assistant', `${name} · analizuje zdjęcie`, 'Wysyłanie do Vision…');
-      feedback.textContent = 'Analiza obrazu przez model Vision…';
-      try {
-        const prepared = await prepareVisionImage(file);
-        const result = await api.vision(agent.value, text, prepared);
-        if (typeof result.content !== 'string') throw new ApiError('Brak tekstu odpowiedzi modelu Vision.');
-        if (answer) {
-          answer.text.textContent = result.content;
-          answer.heading.textContent = `${name} · ${result.model ?? 'Vision'}`;
-        }
-        message.value = '';
-        clearAttachment();
-        feedback.textContent = 'Odpowiedź modelu Vision otrzymana z API.';
-      } catch (error) {
-        answer?.entry.remove();
-        appendTranscript('error', 'Błąd Vision', error.message);
-        feedback.textContent = error.message;
-      } finally {
-        visionBusy = false;
-        submit.disabled = false;
-        await loadTasks();
-      }
+      clearAttachment();
+      feedback.textContent = 'Vision nie jest skonfigurowane dla lokalnego kanału tekstowego. Nie wysłano obrazu ani nie wygenerowano odpowiedzi.';
       return;
     }
 
@@ -968,9 +1005,14 @@ function bindChatForm() {
     activeChatTaskId = '';
     activeChatCancelMessage = '';
     const agentName = AGENT_PROFILES.find((profile) => profile.id === agent.value)?.name ?? agent.value;
+    const channelName = agent.value === 'ollama'
+      ? 'Ollama lokalna'
+      : agent.value === 'all'
+        ? 'Wszyscy'
+        : agentName;
     const userMessage = text;
-    appendTranscript('user', `Ty · ${agentName}`, userMessage);
-    const responseBubble = appendTranscript('assistant', `${agentName} · łączenie`);
+    appendTranscript('user', `Ty · ${channelName}`, userMessage);
+    const responseBubble = appendTranscript('assistant', `${channelName} · łączenie`);
     submit.hidden = true;
     stop.hidden = false;
     feedback.textContent = 'Łączenie ze strumieniem API…';
@@ -978,7 +1020,7 @@ function bindChatForm() {
     let receivedDone = false;
     let receivedCancelled = false;
     let responseSource = '';
-    let responseAgent = agentName;
+    let responseAgent = channelName;
     let responseSessionId = '';
 
     try {
@@ -997,7 +1039,9 @@ function bindChatForm() {
           receivedDone = true;
           responseSessionId = payload.session_id ?? responseSessionId;
           responseSource = payload.source ?? '';
-          responseAgent = AGENT_PROFILES.find((profile) => profile.id === payload.agent)?.name ?? responseAgent;
+          responseAgent = payload.source === 'ollama'
+            ? 'Ollama lokalna'
+            : AGENT_PROFILES.find((profile) => profile.id === payload.agent)?.name ?? responseAgent;
         } else if (streamEvent === 'cancelled') {
           receivedCancelled = true;
           responseSessionId = payload.session_id ?? responseSessionId;
@@ -1025,7 +1069,9 @@ function bindChatForm() {
       }
       message.value = '';
       feedback.textContent = responseSource === 'ollama'
-        ? 'Odpowiedź lokalnej Ollamy; API nie zapisuje historii sesji.'
+        ? agent.value === 'all'
+          ? 'Odpowiedź lokalnej Ollamy; oryginalni agenci są odłączeni. Historia zapisana w lokalnej bazie SQLite.'
+          : 'Odpowiedź lokalnej Ollamy; historia zapisana w lokalnej bazie SQLite.'
         : responseSource === 'model_provider'
           ? 'Odpowiedź podłączonego dostawcy AI; brak zapisu historii sesji.'
           : 'Odpowiedź API.';
@@ -1038,9 +1084,7 @@ function bindChatForm() {
         if (!responseText && responseBubble) responseBubble.entry.remove();
         else if (responseBubble) responseBubble.heading.textContent = `${agentName} · odpowiedź nieukończona`;
         appendTranscript('error', `Błąd API${error.status ? ` · HTTP ${error.status}` : ''}`, error.message);
-        feedback.textContent = error.status === 503
-          ? 'Model niedostępny — API nie wygenerowało odpowiedzi.'
-          : error.message;
+        feedback.textContent = error.message;
       }
     } finally {
       activeChatController = null;
@@ -1058,7 +1102,7 @@ function bindChatForm() {
     const controller = activeChatController;
     const taskId = activeChatTaskId;
     if (!taskId) {
-      activeChatCancelMessage = 'Brak ID zadania do anulowania. Zatrzymano odbiór strumienia; anulowanie serwera nie jest potwierdzone.';
+      activeChatCancelMessage = 'Strumień przerwany. Backend zamknął połączenie z lokalnym modelem; anulowanie oryginalnych agentów nie dotyczy tej sesji.';
       controller.abort();
       return;
     }
@@ -1147,6 +1191,7 @@ if (typeof document !== 'undefined') {
   bindChatForm();
   bindTerminalForm();
   bindWorkCreateForm();
+  void refreshChatHistory();
   renderHistory();
   document.getElementById('refresh-status')?.addEventListener('click', refreshDashboard);
   document.getElementById('refresh-tasks')?.addEventListener('click', refreshWork);

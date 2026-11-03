@@ -57,6 +57,9 @@ jobs:
           python3 - <<'PY'
           import json, os, urllib.request
           from pathlib import Path
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+              return None
           roles = {
             'alex': 'architecture and integration',
             'aria': 'AI model and API integration',
@@ -93,7 +96,7 @@ jobs:
             },
             method='POST',
           )
-          with urllib.request.urlopen(req, timeout=90) as response:
+          with urllib.request.build_opener(NoRedirect).open(req, timeout=90) as response:
             result = json.load(response)
           plan = result['choices'][0]['message']['content']
           if not isinstance(plan, str) or not plan.strip():

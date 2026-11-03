@@ -9,6 +9,16 @@ const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 const TEST_SESSION_ID = '123e4567-e89b-42d3-a456-426614174000';
 const TEST_TASK_ID = '123e4567-e89b-42d3-a456-426614174001';
 
+function sameOriginHeaders(base, headers = {}) {
+  return { ...headers, Origin: base };
+}
+
+function fetchWithSameOrigin(url, options) {
+  const headers = new Headers(options.headers);
+  headers.set('Origin', new URL(url).origin);
+  return fetch(url, { ...options, headers });
+}
+
 async function reserveLoopbackPort() {
   const server = createServer();
   await new Promise((resolve, reject) => {
@@ -113,7 +123,7 @@ test('real loopback proxy allows only contract routes and normalizes upstream he
 
   const chat = await fetch(`${baseUrl}/api/v1/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sameOriginHeaders(baseUrl, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ message: '/help', agent: 'aria' }),
   });
   assert.equal(chat.status, 200);
@@ -123,7 +133,7 @@ test('real loopback proxy allows only contract routes and normalizes upstream he
 
   const stream = await fetch(`${baseUrl}/api/v1/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sameOriginHeaders(baseUrl, { 'Content-Type': 'application/json' }),
     body: JSON.stringify({ message: '/help', agent: 'aria' }),
   });
   assert.equal(stream.status, 200);
@@ -171,7 +181,9 @@ test('real loopback proxy injects only its configured operator token and forward
 
   const response = await fetch(`${baseUrl}/api/v1/tasks/${TEST_TASK_ID}/cancel`, {
     method: 'POST',
-    headers: { Authorization: ['Bear', 'er browser-supplied-token'].join('') },
+    headers: sameOriginHeaders(baseUrl, {
+      Authorization: ['Bear', 'er browser-supplied-token'].join(''),
+    }),
   });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).path, `/api/v1/tasks/${TEST_TASK_ID}/cancel`);
@@ -181,12 +193,28 @@ test('real loopback proxy injects only its configured operator token and forward
   assert.equal(upstream.requests[0].body, '');
 });
 
+test('real loopback proxy rejects cross-origin and origin-less mutations', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const baseUrl = await startUiProxy(t, upstream.port, 'fixture-only-operator-token');
+  for (const headers of [{ Origin: 'https://attacker.example' }, {}]) {
+    const response = await fetch(`${baseUrl}/api/v1/tasks/${TEST_TASK_ID}/cancel`, {
+      method: 'POST',
+      headers,
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), {
+      error: 'Żądanie API musi pochodzić z tego samego originu.',
+    });
+  }
+  assert.equal(upstream.requests.length, 0, 'untrusted mutations must not reach the authenticated API');
+});
+
 test('real loopback proxy rejects a body on task cancellation before forwarding', async (t) => {
   const upstream = await startUpstreamDouble(t);
   const baseUrl = await startUiProxy(t, upstream.port);
   const response = await fetch(`${baseUrl}/api/v1/tasks/${TEST_TASK_ID}/cancel`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sameOriginHeaders(baseUrl, { 'Content-Type': 'application/json' }),
     body: '{}',
   });
   assert.equal(response.status, 400);
@@ -199,7 +227,7 @@ test('real loopback proxy rejects oversized writes before forwarding', async (t)
   const baseUrl = await startUiProxy(t, upstream.port);
   const response = await fetch(`${baseUrl}/api/v1/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: sameOriginHeaders(baseUrl, { 'Content-Type': 'application/json' }),
     body: 'x'.repeat(16_385),
   });
   assert.equal(response.status, 413);
@@ -223,7 +251,7 @@ test('persistent Work task creation is proxied with server-side token', async (t
   const base = await startUiProxy(t, upstream.port, 'fixture-long-operator-token');
   const task = { agent: 'alex', kind: 'development', title: 'Debian 13',
     description: 'Plan only: no automatic workers' };
-  const response = await fetch(`${base}/api/v1/tasks`, {
+  const response = await fetchWithSameOrigin(`${base}/api/v1/tasks`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer should-not-be-forwarded' },
     body: JSON.stringify(task),
@@ -242,7 +270,7 @@ test('original Alex capability and explicit operator handoff stay behind tokeniz
   assert.equal(capability.status, 200);
   assert.equal((await capability.json()).path, '/api/v1/alex/capabilities');
   const taskId = '123e4567-e89b-42d3-a456-426614174001';
-  const dispatch = await fetch(`${base}/api/v1/tasks/${taskId}/dispatch`, {
+  const dispatch = await fetchWithSameOrigin(`${base}/api/v1/tasks/${taskId}/dispatch`, {
     method: 'POST',
     headers: { 'Authorization': 'Bearer do-not-trust-browser' },
   });
@@ -254,7 +282,7 @@ test('original Alex capability and explicit operator handoff stay behind tokeniz
     'Bearer operator-test-token-long-enough-for-ci');
   assert.equal(upstream.requests[1].body, '');
   assert.equal(upstream.requests[1].method, 'POST');
-  const blocked = await fetch(`${base}/api/v1/tasks/${taskId}/dispatch`, {
+  const blocked = await fetchWithSameOrigin(`${base}/api/v1/tasks/${taskId}/dispatch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({force: true, purchaseAuthorized: true}),

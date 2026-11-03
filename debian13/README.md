@@ -1,152 +1,131 @@
-# Debian 13 — niezależny interfejs
+# Debian 13 — niezależna aplikacja developerska
 
-Interfejs w [`ui/`](ui/) łączy się z wersjonowanym API Debian 13 v1, bez
-korzystania z API starszej aplikacji Bastilla OS 2. Używa kontraktu backendu
-z PR #97, commit
-[`664b7b6`](https://github.com/mmitek515-netizen/Bastilla_OS_2/commit/664b7b621c85b5e1a745a28c6845b67a33fc2e2c);
-ten etap nie kopiuje ani nie zmienia jego plików backendu.
+To jest uruchamialna aplikacja developerska z Pythonowym API i GUI, a nie
+ukończony system operacyjny: repozytorium nie dostarcza bootowalnego ISO ani
+zweryfikowanej maszyny wirtualnej. Profile Alex, Aria, Astyria i Aurelius nie
+potwierdzają działających workerów AI.
 
-## Uruchomienie sesji AI w GitHub Codespaces (nowa, samodzielna ścieżka)
+## Szybki start
 
-Dla najnowszego serwera w `debian13/system/server.py` i interfejsu
-`debian13/ui` nie trzeba używać starego backendu z innego repo.
-Otwórz Codespace **dla gałęzi `migration/debian13-codespaces`** i
-wykonaj w terminalu repozytorium:
-
-```bash
-bash debian13/start-ai-session.sh
-```
-
-Jeżeli Codespaces otworzył katalog `debian13/` jako główny, użyj
-`bash start-ai-session.sh`. Skrypt generuje prywatny token
-operatora (jeśli nie jest już ustawiony), buduje API w Dockerze, uruchamia
-Ollamę i automatycznie pobiera `llama3.2-vision:11b`, następnie
-uruchamia prywatny serwer interfejsu na porcie `3000`.
-W Codespaces otwórz panel **Ports** i kliknij przekierowany **prywatny** port
-`3000`. Nie zmieniaj jego widoczności na publiczną.
-
-**Zasoby:** Ollama 11B Vision pobiera około 7,8 GB danych; zalecany jest
-serwer z odpowiednią pamięcią, najlepiej GPU z min. 8 GB VRAM. Mały Codespace
-może nie mieć zasobów do uruchomienia tego modelu. Serwer nie jest uruchomiony
-przez samo dodanie skryptu do repozytorium.
-
-**Inny provider AI:** aby użyć zewnętrznego OpenAI-compatible API zamiast
-lokalnej Ollamy, ustaw `MODEL_CHAT_URL` (pełny adres
-HTTPS `/v1/chat/completions`), `MODEL_API_KEY` i
-`MODEL_NAME` w prywatnych zmiennych środowiskowych Codespaces,
-a następnie wykonaj to samo polecenie. Nie wklejaj kluczy do GitHub Issues.
-Po stronie backendu obrazy wymagają dodatkowo `VISION_MODEL_NAME`
-wskazującego model obsługujący obrazy.
-
-**Obecne ograniczenia:** odpowiedzi tekstowe trafiają z prawdziwego endpointu
-modelu do GUI przez zgodny format SSE, ale kompletna odpowiedź pojawia się po
-inferencji (bez tokenowego streamingu). Historia nie jest utrwalana, a Work
-zwraca pustą listę, dopóki niezależny system kolejkowy nie zostanie wdrożony.
-Profile agentów nie są autonomicznymi workerami. Dostępność rzeczywistego
-modelu i inferencję Vision trzeba zweryfikować po uruchomieniu Codespace.
-
-## Alternatywna dokumentacja starszego prototypu GUI
-
-### Uruchomienie starego backendu demonstracyjnego
-
-Uruchom zgodny backend API na `127.0.0.1:8765` (źródło z powyższego commita
-udostępnia `python3 debian13/server.py`), a następnie z katalogu repozytorium:
+W katalogu głównym repozytorium uruchom:
 
 ```sh
-npm run dev:debian13-ui
+bash debian13/start-local.sh
 ```
 
-Otwórz `http://127.0.0.1:4174`. UI i serwer pośredniczący wiążą się wyłącznie z
-loopbackiem. Serwer pośredniczy wyłącznie w jawnie dozwolonych trasach UI i nie zastępuje
-ani nie implementuje API. Dla wdrożenia UI i API muszą być na tym samym originie
-albo za zaufanym reverse proxy przekazującym te ścieżki.
-Dla oddzielnego, uwierzytelnionego API czatu z PR #95 proxy może dodać token
-operatora skonfigurowany wyłącznie po stronie serwera przez `DEBIAN13_API_TOKEN`.
-Nie umieszczaj tokenu w przeglądarce ani wiadomości czatu; zmienna pozostaje
-pusta dla demonstracyjnego API z PR #97.
+Jeśli bieżącym katalogiem jest `debian13/`, użyj `bash start-local.sh`.
+Otwórz `http://127.0.0.1:3000`; w Codespaces wybierz prywatny port 3000.
+`Ctrl+C` zatrzymuje API i GUI.
 
-UI pobiera status, profile, zadania i zdarzenia z `GET /api/v1/status`,
-`/agents`, `/tasks` i `/events`. Work pokazuje rzeczywiste, ograniczone zdarzenia
-cyklu życia zadań zwracane przez `/events`; ręczne odświeżenie nie jest strumieniem
-na żywo, a zdarzenia są pamięcią procesu, nie dziennikiem systemowym. Czat wysyła
-`POST /api/v1/chat/stream` z `{message, agent}` oraz
-opcjonalnym `session_id`; zdarzenia SSE `meta`, `delta`, `done` i `error` są
-przekazywane bez buforowania. Historię bieżącej sesji pobiera
-`GET /api/v1/sessions/{uuid}/messages`. Terminal używa
-`POST /api/v1/terminal` z `{command}`.
+Wymagany jest Python 3.10 lub nowszy. Docker, npm, płatny plan GitHub i klucz
+API nie są potrzebne do startu. Bez skonfigurowanego providera AI czat zwraca
+informację o niedostępności modelu; Work i ograniczony terminal nadal działają.
+API nasłuchuje wyłącznie na loopbackie. Token operatora jest generowany lokalnie
+i przechowywany poza repozytorium w `~/.local/state/debian13/operator-token`;
+zadania Work są przechowywane w SQLite pod
+`~/.local/share/debian13/workspace`.
 
-Panel boczny ma nawigację Czat/Work/Terminal/Ustawienia, historię sesji i
-zwijany tryb desktopowy; na telefonie otwiera się jako dostępne klawiaturą
-menu. Historia w API jest przechowywana w pamięci backendu i wygasa, a
-przeglądarka przechowuje tylko identyfikatory i tytuły znanych sesji. Work
-pokazuje rzeczywiste zadania z `/tasks`, ale nie uruchamia planów ani kroków:
-kontrakt v1 nie ma API do wieloetapowego Work. Czat wybiera jeden profil;
-grupowe „Wszyscy” jest wyłączone, ponieważ kontrakt nie obsługuje broadcastu.
-Profile agentów nie oznaczają aktywnych workerów. UI pokazuje błędy API i nie
-zastępuje braku modelu odpowiedzią pozorną.
+## Opcjonalny provider AI
 
-Work może odświeżyć status pojedynczego zadania i zażądać anulowania wyłącznie,
-gdy backend udostępnia `GET /api/v1/tasks/{uuid}` oraz beztreściowe
-`POST /api/v1/tasks/{uuid}/cancel` z PR #95. Pythonowe demo PR #97 nie ma tych
-tras; UI zgłasza wtedy brak endpointu i nie twierdzi, że zadanie anulowano.
-Lokalne zatrzymanie strumienia SSE również nie jest potwierdzeniem anulowania
-po stronie serwera.
-
-## Testy
+Aby użyć zgodnego z OpenAI API providera, ustaw jego adres HTTPS, klucz i nazwę
+modelu w środowisku serwera, a następnie uruchom aplikację:
 
 ```sh
-npm run test:debian13-ui
+export MODEL_CHAT_URL="https://provider.example/v1/chat/completions"
+export MODEL_API_KEY="ustaw-klucz-jako-sekret"
+export MODEL_NAME="nazwa-modelu"
+bash debian13/start-local.sh
 ```
 
-Testy HTTP używają jawnie oznaczonego lokalnego test-double i sprawdzają
-przekazywanie SSE bez buforowania, historię, reconnect/anulowanie zadań,
-serwerowe przekazywanie autoryzacji, dozwolone `pwd`, odrzucone `id`, limit
-body oraz HTTP 503 bez modelu. Test-double nie jest dowodem aktywnego modelu
-ani workera.
+Wiadomości, a w przypadku Vision także obrazy, zostaną wysłane do wybranego
+providera. Nie zapisuj kluczy w repozytorium ani w zgłoszeniach.
 
-Rzeczywisty przegląd UI wykonano w Chromium 156.0.8078.0 z przypiętym backendem
-`664b7b6`, bez skonfigurowanego modelu. Poziomy overflow nie wystąpił, a
-composer pozostał przy dolnej krawędzi widoku przy wszystkich wymiarach:
+Alternatywnie `bash debian13/start-ai-session.sh` uruchamia Ollamę przez
+Docker Compose z tekstowym modelem Qwen3 0.6B (~523 MB, CPU). Przed pobieraniem
+skrypt sprawdza dostępne RAM i miejsce na dysku. Ollama jest dostępna z hosta
+wyłącznie przez `127.0.0.1:11434`; nie udostępniaj ani nie przekazuj tego portu
+publicznie. Rozmowa lokalna używa strumieniowania i historii SQLite. Szczegóły
+konfiguracji i ograniczenia Vision opisuje [`system/OLLAMA.md`](system/OLLAMA.md).
 
-- [320 × 900](ui/previews/debian13-chat-ui-320.png)
-- [360 × 900](ui/previews/debian13-chat-ui-360.png)
-- [412 × 900](ui/previews/debian13-chat-ui-412.png)
-- [1440 × 1000](ui/previews/debian13-chat-ui-1440.png)
+## Funkcje i ograniczenia
 
-Przetestowano widoczny lokalny `/help`, błąd strumienia bez modelu, odtwarzanie
-historii, `pwd`, odrzucenie `id`, widoki Work/Ustawienia, otwieranie panelu
-bocznego na telefonie, Escape i zwijanie panelu na desktopie. Screenshoty pokazują
-rzeczywisty interfejs i lokalną odpowiedź `/help`, nie inferencję modelu.
+- `system/server.py` udostępnia uwierzytelnione API HTTP; token nie jest
+  umieszczany w kodzie przeglądarki.
+- `system/work_store.py` przechowuje zadania i zdarzenia w SQLite. Dodanie
+  zadania nie uruchamia agenta, kodu ani zakupów.
+- `system/mcp_server.py` udostępnia narzędzia MCP tylko do odczytu przez stdio.
+- `system/gpt-actions.openapi.json` opisuje kontrakt GPT Actions; obecność
+  schematu nie potwierdza podłączenia GPT.
+- Integracja z istniejącym Alex wymaga skonfigurowanego endpointu i jawnego
+  przekazania zadania. Sam profil ani rejestr zadań nie dowodzą wykonania przez
+  AI.
+- GUI zawiera czat, Work, ograniczony terminal i ustawienia. Brak providera,
+  działających workerów, MCP klienta lub połączenia GPT/Codex jest raportowany
+  jako ograniczenie, a nie zastępowany symulowanym sukcesem.
+- Kanał „Ollama lokalna” jest osobnym modelem, nie tożsamością oryginalnego
+  agenta. Kanał „Wszyscy” zwraca odpowiedź tylko lokalnej Ollamy, gdy oryginalne
+  agenty są odłączone; próby skierowane bezpośrednio do nich kończą się błędem
+  `agent_disconnected` i są logowane bez treści promptu.
+- Nie uruchomiono tutaj zakupów ani płatnych usług. Każdy zakup wymaga
+  wcześniejszej, jednoznacznej zgody właściciela na konkretny wydatek.
 
-Work event-log screenshots captured 2026-11-02 from UI SHA `b0cf22d` in Chromium
-156.0.8078.0, using the pinned API with Ollama not configured. They show three
-real task lifecycle events generated by `/help`, not simulated worker activity:
+## Weryfikacja lokalna
 
-- [320 × 900](ui/previews/debian13-work-events-320.png)
-- [1440 × 1000](ui/previews/debian13-work-events-1440.png)
+Z katalogu głównego repozytorium:
 
-Auth/reconnect previews captured in HeadlessChrome 156 on 2026-11-02 from UI commit
-`23d8942`, using a local HTTP test-double deliberately returning 401. On
-320/360/412 px the mobile drawer was opened; the 1440 px view uses the desktop
-sidebar. These are fixture error states, not proof of a live or authenticated
-backend:
+```sh
+bash debian13/start-local.sh --check
+python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
+node --test debian13/ui/dev_server.test.mjs
+```
 
-- [320 × 900](ui/previews/debian13-work-auth-320.png)
-- [360 × 900](ui/previews/debian13-work-auth-360.png)
-- [412 × 900](ui/previews/debian13-work-auth-412.png)
-- [1440 × 1000](ui/previews/debian13-work-auth-1440.png)
+Testy lokalne sprawdzają API, Work/SQLite, integracje i proxy GUI przy użyciu
+testowych endpointów. Nie są dowodem działającego zewnętrznego modelu, agenta,
+GPT Actions, Codex, publicznego CI ani bootowania Debian 13. Te elementy należy
+zweryfikować osobno w odpowiednim środowisku i na konkretnym commicie.
 
-Browser interaction checks also confirmed that Work retries after a 401,
-displays the authorization requirement, and does not lose its error state;
-chat receives `cancelled` from a local HTTP fixture after requesting task
-cancellation. At 320/360/412/1440 px, document width equaled viewport width;
-the chat composer bottom measured 831/900, 841/900, 841/900 and 947/1000 px.
-The fixture is not PR #95's running backend or a model.
+### Rzeczywisty podgląd GUI
 
-## Niewykonane
+Zrzuty wykonano w przeglądarce Chromium przez Playwright, 2026-11-03, na
+lokalnie uruchomionym API i GUI z drzewa roboczego opartego na commicie
+`f6e4c80`, bez skonfigurowanego modelu. To rzeczywiste widoki aplikacji, nie
+makiety ani dowód inferencji.
+Wymiary dokumentu były równe szerokościom okna przy 320, 360, 412 i 1440 px.
+Na 320 px otworzono też mobilny panel i nawigowano do widoku Work; po wyborze
+widoku panel się zamknął.
 
-- Nie przygotowano ISO, VM ani bootu Debian 13; nie uruchomiono MCP ani AI Studio.
-- Cztery role to profile; backend v1 jawnie raportuje workery jako
-  `not_running`. Nie uruchomiono czterech procesów agentów.
-- Nie uruchomiono płatnych usług ani nie dokonano zakupów. Każdy wydatek wymaga
-  osobnej uprzedniej akceptacji.
+- Chat, 320 × 900: [`ui/previews/debian13-chat-ui-320.png`](ui/previews/debian13-chat-ui-320.png)
+- Chat, 360 × 900: [`ui/previews/debian13-chat-ui-360.png`](ui/previews/debian13-chat-ui-360.png)
+- Chat, 412 × 900: [`ui/previews/debian13-chat-ui-412.png`](ui/previews/debian13-chat-ui-412.png)
+- Chat, 1440 × 1000: [`ui/previews/debian13-chat-ui-1440.png`](ui/previews/debian13-chat-ui-1440.png)
+- Otwarta nawigacja mobilna, 320 × 900: [`ui/previews/debian13-chat-nav-320.png`](ui/previews/debian13-chat-nav-320.png)
+- Work po utworzeniu zadania przeglądowego i zdarzeniu `task_queued`, 360 × 900:
+  [`ui/previews/debian13-work-ui-360.png`](ui/previews/debian13-work-ui-360.png)
+- Ustawienia: rzeczywisty stan czterech niepodłączonych agentów i integracji, 1440 × 1000:
+  [`ui/previews/debian13-agents-status-1440.png`](ui/previews/debian13-agents-status-1440.png)
+
+Najnowszą kontrolę (2026-11-03) wykonano na lokalnym runnerze, nie w Codespace
+(`CODESPACES` nieustawione), na drzewie opartym na `9f111e6`. Start skryptu
+przeszedł preflight RAM/dysku, zbudował i uruchomił API, UI oraz usługę Ollama.
+Model-init zakończył się błędem DNS:
+
+```text
+Error: pull model manifest: Get "https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b": dial tcp: lookup registry.ollama.ai on 127.0.0.11:53: server misbehaving
+```
+
+`curl -f http://127.0.0.1:11434/api/tags` zwrócił `{"models":[]}`; API
+odpowiedziało na `/healthz`, a GUI na porcie 3000 zwróciło HTTP 200. Rzeczywiste
+uwierzytelnione pytanie do czatu zwróciło HTTP 503 `model_not_found` („Pull the
+model, then retry”), więc nie było inferencji, prawdziwego wieloturowego testu,
+ani odzyskania modelu po restarcie. Kanał oryginalnej Arii zwrócił
+`agent_disconnected`; „Wszyscy” nie sfabrykował odpowiedzi, gdy modelu brakowało.
+Ustawienia pokazały cztery agenty jako odłączone i zapisały próby bez treści
+promptu. Nie zweryfikowano Codespaces ani zewnętrznych workerów.
+
+- Chat 320 × 900: [`ui/previews/ollama-chat-ui-320.png`](ui/previews/ollama-chat-ui-320.png)
+- Chat 360 × 900: [`ui/previews/ollama-chat-ui-360.png`](ui/previews/ollama-chat-ui-360.png)
+- Chat 412 × 900: [`ui/previews/ollama-chat-ui-412.png`](ui/previews/ollama-chat-ui-412.png)
+- Chat 1440 × 1000: [`ui/previews/ollama-chat-ui-1440.png`](ui/previews/ollama-chat-ui-1440.png)
+- Mobilna nawigacja 320 × 900: [`ui/previews/ollama-chat-nav-320.png`](ui/previews/ollama-chat-nav-320.png)
+- Status modeli i oryginalnych agentów 1440 × 1000:
+  [`ui/previews/ollama-agents-status-1440.png`](ui/previews/ollama-agents-status-1440.png)
