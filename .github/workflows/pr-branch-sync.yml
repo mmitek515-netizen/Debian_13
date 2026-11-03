@@ -73,8 +73,12 @@ jobs:
                   print(f'PR #{n}: submitted safe branch update')
                   updated += 1
               except urllib.error.HTTPError as exc:
-                  print(f'PR #{n}: API HTTP {exc.code}; not modified')
-                  errors += 1
+                  if exc.code in (409, 422):
+                      print(f'PR #{n}: conflict or branch policy (HTTP {exc.code}); manual review needed')
+                      skipped += 1
+                  else:
+                      print(f'PR #{n}: API HTTP {exc.code}; not modified')
+                      errors += 1
               except Exception as exc:
                   print(f'PR #{n}: {type(exc).__name__}; not modified')
                   errors += 1
