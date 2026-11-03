@@ -35,13 +35,20 @@ if [[ -n "${MODEL_CHAT_URL:-}" ]]; then
   echo "Text and images may be sent to the selected external model provider."
   docker compose -f compose.yaml up -d --build
 else
-  export OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2-vision:11b}"
-  export OLLAMA_VISION_MODEL="${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}"
-  RAM_KIB="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
-  if [[ "$RAM_KIB" -lt 16777216 ]]; then
-    echo "WARNING: less than 16 GiB RAM detected. Llama Vision 11B may fail or run slowly." >&2
-    echo "Choose a larger Codespace/host or set MODEL_CHAT_URL, MODEL_API_KEY and MODEL_NAME." >&2
+  export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen3:0.6b}"
+  export OLLAMA_VISION_MODEL="${OLLAMA_VISION_MODEL:-}"
+  AVAILABLE_RAM_KIB="$(awk '/MemAvailable:/ {print $2}' /proc/meminfo)"
+  AVAILABLE_DISK_KIB="$(df -Pk "$BASE" | awk 'NR==2 {print $4}')"
+  if [[ -z "$AVAILABLE_RAM_KIB" || "$AVAILABLE_RAM_KIB" -lt 2097152 ]]; then
+    echo "ERROR: at least 2 GiB available RAM is required before starting the local model." >&2
+    exit 1
   fi
+  if [[ -z "$AVAILABLE_DISK_KIB" || "$AVAILABLE_DISK_KIB" -lt 2097152 ]]; then
+    echo "ERROR: at least 2 GiB available disk is required before downloading Ollama/model data." >&2
+    exit 1
+  fi
+  echo "Resource preflight passed: at least 2 GiB RAM and disk available."
+  echo "Using text-only model $OLLAMA_MODEL; vision is opt-in via OLLAMA_VISION_MODEL."
   echo "Starting Ollama; model $OLLAMA_MODEL is pulled automatically on first start."
   docker compose -f compose.yaml -f compose.ollama.yaml up -d --build
 fi
@@ -50,5 +57,5 @@ export DEBIAN13_API_PORT="${DEBIAN13_PORT:-8080}"
 export DEBIAN13_UI_PORT="${DEBIAN13_UI_PORT:-3000}"
 echo "API: localhost:$DEBIAN13_API_PORT; GUI: localhost:$DEBIAN13_UI_PORT."
 echo "Open the Codespaces Ports tab and choose the PRIVATE forwarded port 3000."
-echo "Replies use the configured model; chat sessions are not persisted."
+echo "Replies use the configured model; chat history is stored in the private SQLite workspace."
 exec python3 "$BASE/ui/dev_server.py"

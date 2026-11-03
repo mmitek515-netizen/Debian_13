@@ -7,13 +7,16 @@ import base64
 import binascii
 import hmac
 import http.server
+import http.client
 import json
 import os
 import platform
 import re
+import select
 import selectors
 import shlex
 import signal
+import socket
 import subprocess
 import threading
 import time
@@ -43,7 +46,9 @@ TASK_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 TASK_DETAIL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")$")
 TASK_CANCEL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/cancel$")
 TASK_DISPATCH_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/dispatch$")
+CHAT_SESSION_PATH = re.compile(r"^/api/v1/sessions/(" + TASK_UUID + r")/messages$")
 WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
+CHAT_CHANNELS = frozenset({"ollama", "all"})
 
 PROFILES = {
     "aria": {
@@ -117,6 +122,104 @@ def validate_provider_url(value: str) -> str:
     ):
         raise ValueError("MODEL_CHAT_URL must be an HTTPS chat-completions URL (HTTP is allowed for loopback tests).")
     return value
+
+
+def validate_ollama_base_url(value: str) -> str:
+    if not value:
+        return ""
+    parsed = urllib.parse.urlsplit(value.rstrip("/"))
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("OLLAMA_BASE_URL must contain a valid port.") from exc
+    allowed = parsed.scheme == "https" or (
+        parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+    ) or (
+        parsed.scheme == "http" and parsed.hostname == "ollama"
+        and os.environ.get("DEBIAN13_ALLOW_INTERNAL_OLLAMA") == "1"
+        and port == 11434
+    )
+    if (
+        not allowed
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValueError("OLLAMA_BASE_URL must use HTTPS or a trusted loopback/internal Ollama URL.")
+    return value.rstrip("/")
+
+
+def _ollama_json_request(base_url: str, path: str, payload: dict | None = None) -> dict:
+    request = urllib.request.Request(
+        base_url + path,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST" if payload is not None else "GET",
+    )
+    try:
+        with urllib.request.build_opener(NoRedirectHandler()).open(
+            request, timeout=5 if payload is None else CHAT_TIMEOUT_SECONDS
+        ) as response:
+            raw = response.read(MAX_PROVIDER_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        details = exc.read(4096).decode("utf-8", "replace").lower()
+        if "out of memory" in details or "memory allocation" in details:
+            raise ApiError(503, "out_of_memory", "Ollama ran out of memory while loading or running the model.") from exc
+        if exc.code == 404 and path == "/api/chat":
+            raise ApiError(503, "model_not_found", "Ollama does not have the selected model. Pull the model, then retry.") from exc
+        raise ApiError(502, "ollama_error", "Ollama returned an error. Check its server logs.") from exc
+    except urllib.error.URLError as exc:
+        reason = exc.reason
+        if isinstance(reason, (ConnectionError, socket.gaierror)):
+            raise ApiError(503, "connection_refused", "Ollama is not accepting connections. Start or restart the Ollama service.") from exc
+        if isinstance(reason, TimeoutError):
+            raise ApiError(504, "provider_timeout", "Ollama did not respond before the request timed out.") from exc
+        raise ApiError(503, "ollama_unavailable", "Ollama is unavailable. Check the service and its private network.") from exc
+    except TimeoutError as exc:
+        raise ApiError(504, "provider_timeout", "Ollama did not respond before the request timed out.") from exc
+    if len(raw) > MAX_PROVIDER_RESPONSE_BYTES:
+        raise ApiError(502, "provider_response_too_large", "Ollama response exceeded the size limit.")
+    try:
+        result = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ApiError(502, "invalid_provider_response", "Ollama returned an invalid response.") from exc
+    if not isinstance(result, dict):
+        raise ApiError(502, "invalid_provider_response", "Ollama returned an invalid response.")
+    return result
+
+
+def ollama_status(config: dict) -> dict:
+    base_url = config.get("ollama_base_url", "")
+    model = config.get("ollama_model", "")
+    if not base_url or not model:
+        return {"status": "not_configured", "model_available": False}
+    for attempt in range(2):
+        try:
+            payload = _ollama_json_request(base_url, "/api/tags")
+            break
+        except ApiError as exc:
+            if exc.code == "connection_refused" and attempt == 0:
+                time.sleep(0.2)
+                continue
+            status = "connection_refused" if exc.code == "connection_refused" else "unavailable"
+            return {"status": status, "model_available": False}
+    models = payload.get("models")
+    if not isinstance(models, list):
+        return {"status": "invalid_response", "model_available": False}
+    available = any(isinstance(item, dict) and item.get("name") in {model, model + ":latest"}
+                    for item in models)
+    return {
+        "status": "model_available" if available else "model_not_found",
+        "model_available": available,
+    }
+
+
+def ollama_chat_payload(model: str, messages: list[dict]) -> dict:
+    return {"model": model, "messages": messages, "stream": True}
 
 
 def safe_workspace_path(workspace: Path, raw_path: str) -> str:
@@ -275,7 +378,10 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
     payload = json.dumps({
         "model": model,
         "messages": [
-            {"role": "system", "content": PROFILES[profile]["prompt"]},
+            {"role": "system", "content": (
+                "You are a general AI assistant. You are not Aria, Alex, Astyria, or Aurelius. "
+                "Do not claim to be an original agent or to have performed external actions."
+            )},
             {"role": "user", "content": user_content},
         ],
         "temperature": 0.2,
@@ -336,9 +442,12 @@ def runtime_diagnostics(server) -> dict:
         "effectiveGid": os.getegid(),
         "workspaceWritable": os.access(server.workspace, os.W_OK),
         "providerConfigured": bool(
-            server.config["model_chat_url"]
-            and server.config["model_api_key"]
-            and server.config["model_name"]
+            (
+                server.config["model_chat_url"]
+                and server.config["model_api_key"]
+                and server.config["model_name"]
+            )
+            or (server.config.get("ollama_base_url") and server.config.get("ollama_model"))
         ),
         "linuxSecurity": linux_security,
     }
@@ -402,6 +511,137 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_chat_event(self, event: str, payload: dict) -> None:
+        body = (
+            "event: " + event + "\n"
+            "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+        ).encode("utf-8")
+        self.wfile.write(body)
+        self.wfile.flush()
+
+    def _open_ollama_stream(self, messages: list[dict]):
+        payload = ollama_chat_payload(self.server.config["ollama_model"], messages)
+        request = urllib.request.Request(
+            self.server.config["ollama_base_url"] + "/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/x-ndjson"},
+            method="POST",
+        )
+        for attempt in range(2):
+            try:
+                return urllib.request.build_opener(NoRedirectHandler()).open(
+                    request, timeout=CHAT_TIMEOUT_SECONDS
+                )
+            except urllib.error.HTTPError as exc:
+                details = exc.read(4096).decode("utf-8", "replace").lower()
+                if "out of memory" in details or "memory allocation" in details:
+                    raise ApiError(503, "out_of_memory", "Ollama ran out of memory while loading or running the model.") from exc
+                if exc.code == 404:
+                    raise ApiError(503, "model_not_found", "Ollama does not have the selected model. Pull the model, then retry.") from exc
+                raise ApiError(502, "ollama_error", "Ollama returned an error. Check its server logs.") from exc
+            except urllib.error.URLError as exc:
+                reason = exc.reason
+                refused = isinstance(reason, (ConnectionError, socket.gaierror))
+                if refused and attempt == 0 and not isinstance(reason, socket.gaierror):
+                    time.sleep(0.2)
+                    continue
+                if refused:
+                    raise ApiError(503, "connection_refused", "Ollama is not accepting connections. Start or restart the Ollama service.") from exc
+                if isinstance(reason, TimeoutError):
+                    raise ApiError(504, "provider_timeout", "Ollama did not respond before the request timed out.") from exc
+                raise ApiError(503, "ollama_unavailable", "Ollama is unavailable. Check the service and its private network.") from exc
+            except TimeoutError as exc:
+                raise ApiError(504, "provider_timeout", "Ollama did not respond before the request timed out.") from exc
+        raise ApiError(503, "connection_refused", "Ollama is not accepting connections. Start or restart the Ollama service.")
+
+    def _stream_ollama_chat(self, channel: str, message: str, session_id: str) -> None:
+        config = self.server.config
+        if not config.get("ollama_base_url") or not config.get("ollama_model"):
+            raise ApiError(503, "provider_not_configured", "Local Ollama is not configured.")
+        stored = self.server.work_store.get_chat_messages(session_id) or []
+        messages = [{"role": "system", "content": (
+            "You are a local Ollama assistant. You are not Aria, Alex, Astyria, or Aurelius. "
+            "Do not claim to be an original agent or to have performed external actions."
+        )}]
+        messages.extend({"role": row["role"], "content": row["content"]} for row in stored)
+        messages.append({"role": "user", "content": message})
+        response = self._open_ollama_stream(messages)
+        self.server.work_store.append_chat_message(session_id, channel, "user", message, "user")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        self._send_chat_event("meta", {
+            "session_id": session_id,
+            "source": "ollama",
+            "channel": channel,
+            "disconnected_agents": ["aria", "alex", "astyria", "aurelius"],
+        })
+        content = ""
+        try:
+            while True:
+                try:
+                    readable, _, _ = select.select([self.connection], [], [], 0)
+                    if readable and self.connection.recv(1, socket.MSG_PEEK) == b"":
+                        return
+                except (OSError, ValueError):
+                    return
+                line = response.readline(MAX_PROVIDER_RESPONSE_BYTES + 1)
+                if not line:
+                    break
+                if len(line) > MAX_PROVIDER_RESPONSE_BYTES:
+                    self._send_chat_event("error", {"error": "Ollama response exceeded the size limit."})
+                    return
+                try:
+                    chunk = json.loads(line)
+                except (ValueError, UnicodeDecodeError):
+                    self._send_chat_event("error", {"error": "Ollama returned an invalid streaming response."})
+                    return
+                if not isinstance(chunk, dict):
+                    self._send_chat_event("error", {"error": "Ollama returned an invalid streaming response."})
+                    return
+                error = chunk.get("error")
+                if isinstance(error, str):
+                    lower_error = error.lower()
+                    if "out of memory" in lower_error or "memory allocation" in lower_error:
+                        self._send_chat_event("error", {"error": "Ollama ran out of memory. Use a smaller model or more RAM."})
+                    elif "not found" in lower_error:
+                        self._send_chat_event("error", {"error": "Ollama model not found. Pull the selected model, then retry."})
+                    else:
+                        self._send_chat_event("error", {"error": "Ollama could not complete this request. Check its logs."})
+                    return
+                token = chunk.get("message", {}).get("content", "") if isinstance(chunk.get("message"), dict) else ""
+                if isinstance(token, str) and token:
+                    remaining = MAX_MESSAGE_CHARS - len(content)
+                    if remaining <= 0:
+                        self._send_chat_event("error", {"error": "Ollama response exceeded the message limit."})
+                        return
+                    token = token[:remaining]
+                    content += token
+                    self._send_chat_event("delta", {"text": token})
+                if chunk.get("done") is True:
+                    self.server.work_store.append_chat_message(
+                        session_id, channel, "assistant", content, "ollama"
+                    )
+                    self._send_chat_event("done", {
+                        "agent": "ollama",
+                        "source": "ollama",
+                        "session_id": session_id,
+                    })
+                    return
+        except TimeoutError:
+            self._send_chat_event("error", {"error": "Ollama did not complete the stream before the timeout."})
+            return
+        except (BrokenPipeError, ConnectionResetError, OSError, http.client.HTTPException):
+            # Closing the upstream response stops local inference when the browser cancels.
+            return
+        finally:
+            response.close()
+        self._send_chat_event("error", {"error": "Ollama ended the stream before completing the response."})
 
     def _authorize(self) -> bool:
         expected = "Bearer " + self.server.config["api_token"]
@@ -495,6 +735,10 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/api/v1/status":
             report = runtime_diagnostics(self.server)
+            local_model_status = ollama_status(self.server.config)
+            model_status = local_model_status["status"]
+            if model_status == "not_configured":
+                model_status = "configured" if report["providerConfigured"] else "not_configured"
             self._send_json(200, {
                 "application": {"status": "running", "product": "Debian 13 Console"},
                 "operating_system": {"runtime": {
@@ -502,11 +746,20 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     "debian_13_boot_verified": False,
                 }},
                 "model": {
-                    "status": "configured" if report["providerConfigured"] else "not_configured",
+                    "status": model_status,
                     "inference": "unverified",
                 },
                 "task_state": "Brak uruchomionych workerów",
             })
+            return
+        if self.path == "/api/v1/ollama":
+            self._send_json(200, ollama_status(self.server.config))
+            return
+        if self.path == "/api/v1/sessions":
+            self._send_json(200, {"sessions": self.server.work_store.list_chat_sessions()})
+            return
+        if self.path == "/api/v1/original-agent-attempts":
+            self._send_json(200, {"attempts": self.server.work_store.list_original_agent_attempts()})
             return
         if self.path == "/api/v1/original-agents":
             self._send_json(200, original_agents_report())
@@ -544,6 +797,16 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     "task": task, "alexSubmission":
                     self.server.work_store.get_alex_submission(task["id"])
                 })
+            return
+        session = CHAT_SESSION_PATH.fullmatch(self.path)
+        if session:
+            messages = self.server.work_store.get_chat_messages(session.group(1))
+            if messages is None:
+                self._send_json(404, {"error": {
+                    "code": "session_not_found", "message": "Chat session not found."
+                }})
+            else:
+                self._send_json(200, {"messages": messages})
             return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
@@ -619,6 +882,48 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             if self.path in ("/v1/chat", "/v1/vision", "/api/v1/chat/stream"):
                 profile = data.get("agent") if self.path == "/api/v1/chat/stream" else data.get("profile")
                 message = data.get("message")
+                if self.path == "/api/v1/chat/stream" and isinstance(profile, str) \
+                        and profile in PROFILES:
+                    self.server.work_store.record_original_agent_attempt(profile)
+                    print(
+                        f"original_agent_chat_attempt status=agent_disconnected agent={profile} request_id={request_id}",
+                        flush=True,
+                    )
+                    raise ApiError(
+                        503,
+                        "agent_disconnected",
+                        "Oryginalny agent nie jest połączony. Nie wygenerowano odpowiedzi zastępczej.",
+                    )
+                if self.path == "/api/v1/chat/stream" and isinstance(profile, str) \
+                        and profile in CHAT_CHANNELS:
+                    if not isinstance(message, str) or not message.strip() or len(message) > MAX_MESSAGE_CHARS:
+                        raise ApiError(400, "invalid_message", "Message must contain 1–4000 characters.")
+                    if profile == "all":
+                        for agent_id in ("aria", "alex", "astyria", "aurelius"):
+                            self.server.work_store.record_original_agent_attempt(agent_id)
+                            print(
+                                f"original_agent_chat_attempt status=agent_disconnected agent={agent_id} request_id={request_id}",
+                                flush=True,
+                            )
+                        if not (
+                            self.server.config.get("ollama_base_url")
+                            and self.server.config.get("ollama_model")
+                        ):
+                            raise ApiError(
+                                503,
+                                "agent_disconnected",
+                                "Ollama nie jest skonfigurowana, a oryginalni agenci są odłączeni. Nie wygenerowano odpowiedzi.",
+                            )
+                    session_id = data.get("session_id")
+                    if session_id is not None and (
+                        not isinstance(session_id, str)
+                        or not re.fullmatch(TASK_UUID, session_id)
+                    ):
+                        raise ApiError(400, "invalid_session", "Session ID must be a valid UUID.")
+                    self._stream_ollama_chat(
+                        profile, message.strip(), session_id or str(uuid.uuid4())
+                    )
+                    return
                 if not isinstance(profile, str) or profile not in PROFILES:
                     raise ApiError(400, "invalid_profile", "Select aria, astyria, aurelius, or alex.")
                 if not isinstance(message, str) or not message.strip() or len(message) > MAX_MESSAGE_CHARS:
@@ -660,12 +965,18 @@ def load_config() -> dict:
         provider_url = validate_provider_url(os.environ.get("MODEL_CHAT_URL", "").strip())
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        ollama_base_url = validate_ollama_base_url(os.environ.get("OLLAMA_BASE_URL", "").strip())
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return {
         "api_token": token,
         "model_chat_url": provider_url,
         "model_api_key": os.environ.get("MODEL_API_KEY", ""),
         "model_name": os.environ.get("MODEL_NAME", ""),
         "vision_model_name": os.environ.get("VISION_MODEL_NAME", ""),
+        "ollama_base_url": ollama_base_url,
+        "ollama_model": os.environ.get("OLLAMA_MODEL", "").strip(),
         "workspace": os.environ.get("WORKSPACE_DIR", "/workspace"),
         "host": os.environ.get("HOST", "127.0.0.1"),
         "port": int(os.environ.get("PORT", "8080")),

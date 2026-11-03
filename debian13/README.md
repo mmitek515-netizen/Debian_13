@@ -40,10 +40,12 @@ bash debian13/start-local.sh
 Wiadomości, a w przypadku Vision także obrazy, zostaną wysłane do wybranego
 providera. Nie zapisuj kluczy w repozytorium ani w zgłoszeniach.
 
-Alternatywnie `bash debian13/start-ai-session.sh` uruchamia wariant Docker
-Compose z Ollamą. Wymaga Docker Engine i Compose v2 oraz może pobrać duży model
-przy pierwszym uruchomieniu. Szczegóły konfiguracji kontenera, API i testów
-izolacji opisuje [`system/README.md`](system/README.md).
+Alternatywnie `bash debian13/start-ai-session.sh` uruchamia Ollamę przez
+Docker Compose z tekstowym modelem Qwen3 0.6B (~523 MB, CPU). Przed pobieraniem
+skrypt sprawdza dostępne RAM i miejsce na dysku. Ollama jest dostępna z hosta
+wyłącznie przez `127.0.0.1:11434`; nie udostępniaj ani nie przekazuj tego portu
+publicznie. Rozmowa lokalna używa strumieniowania i historii SQLite. Szczegóły
+konfiguracji i ograniczenia Vision opisuje [`system/OLLAMA.md`](system/OLLAMA.md).
 
 ## Funkcje i ograniczenia
 
@@ -60,6 +62,10 @@ izolacji opisuje [`system/README.md`](system/README.md).
 - GUI zawiera czat, Work, ograniczony terminal i ustawienia. Brak providera,
   działających workerów, MCP klienta lub połączenia GPT/Codex jest raportowany
   jako ograniczenie, a nie zastępowany symulowanym sukcesem.
+- Kanał „Ollama lokalna” jest osobnym modelem, nie tożsamością oryginalnego
+  agenta. Kanał „Wszyscy” zwraca odpowiedź tylko lokalnej Ollamy, gdy oryginalne
+  agenty są odłączone; próby skierowane bezpośrednio do nich kończą się błędem
+  `agent_disconnected` i są logowane bez treści promptu.
 - Nie uruchomiono tutaj zakupów ani płatnych usług. Każdy zakup wymaga
   wcześniejszej, jednoznacznej zgody właściciela na konkretny wydatek.
 
@@ -97,3 +103,29 @@ widoku panel się zamknął.
   [`ui/previews/debian13-work-ui-360.png`](ui/previews/debian13-work-ui-360.png)
 - Ustawienia: rzeczywisty stan czterech niepodłączonych agentów i integracji, 1440 × 1000:
   [`ui/previews/debian13-agents-status-1440.png`](ui/previews/debian13-agents-status-1440.png)
+
+Najnowszą kontrolę (2026-11-03) wykonano na lokalnym runnerze, nie w Codespace
+(`CODESPACES` nieustawione), na drzewie opartym na `9f111e6`. Start skryptu
+przeszedł preflight RAM/dysku, zbudował i uruchomił API, UI oraz usługę Ollama.
+Model-init zakończył się błędem DNS:
+
+```text
+Error: pull model manifest: Get "https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b": dial tcp: lookup registry.ollama.ai on 127.0.0.11:53: server misbehaving
+```
+
+`curl -f http://127.0.0.1:11434/api/tags` zwrócił `{"models":[]}`; API
+odpowiedziało na `/healthz`, a GUI na porcie 3000 zwróciło HTTP 200. Rzeczywiste
+uwierzytelnione pytanie do czatu zwróciło HTTP 503 `model_not_found` („Pull the
+model, then retry”), więc nie było inferencji, prawdziwego wieloturowego testu,
+ani odzyskania modelu po restarcie. Kanał oryginalnej Arii zwrócił
+`agent_disconnected`; „Wszyscy” nie sfabrykował odpowiedzi, gdy modelu brakowało.
+Ustawienia pokazały cztery agenty jako odłączone i zapisały próby bez treści
+promptu. Nie zweryfikowano Codespaces ani zewnętrznych workerów.
+
+- Chat 320 × 900: [`ui/previews/ollama-chat-ui-320.png`](ui/previews/ollama-chat-ui-320.png)
+- Chat 360 × 900: [`ui/previews/ollama-chat-ui-360.png`](ui/previews/ollama-chat-ui-360.png)
+- Chat 412 × 900: [`ui/previews/ollama-chat-ui-412.png`](ui/previews/ollama-chat-ui-412.png)
+- Chat 1440 × 1000: [`ui/previews/ollama-chat-ui-1440.png`](ui/previews/ollama-chat-ui-1440.png)
+- Mobilna nawigacja 320 × 900: [`ui/previews/ollama-chat-nav-320.png`](ui/previews/ollama-chat-nav-320.png)
+- Status modeli i oryginalnych agentów 1440 × 1000:
+  [`ui/previews/ollama-agents-status-1440.png`](ui/previews/ollama-agents-status-1440.png)

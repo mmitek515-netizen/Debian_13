@@ -7,26 +7,36 @@ services:
     restart: unless-stopped
     volumes:
       - ollama-models:/root/.ollama
+    environment:
+      OLLAMA_LLM_LIBRARY: cpu
+    ports:
+      - "127.0.0.1:11434:11434"
     expose:
       - "11434"
-    # No host port published; the model server is reachable only by Compose services.
+    # The model service binds to host loopback only; Codespaces must not forward it publicly.
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     pids_limit: 256
-    mem_limit: 20g
+    mem_limit: 6g
   ollama-model-init:
     image: ollama/ollama:latest
-    restart: on-failure
+    restart: "no"
     depends_on:
       - ollama
-    entrypoint: ["/bin/sh", "-ec"]
-    command: |
-      until OLLAMA_HOST=http://ollama:11434 ollama list >/dev/null 2>&1; do sleep 3; done
-      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL}"
+    entrypoint: ["/bin/sh"]
+    command:
+      - "-ec"
+      - |
+        until OLLAMA_HOST=http://ollama:11434 ollama list >/dev/null 2>&1; do sleep 3; done
+        OLLAMA_HOST=http://ollama:11434 ollama pull "$${OLLAMA_MODEL}"
+        if [ -n "$${OLLAMA_VISION_MODEL}" ]; then
+          OLLAMA_HOST=http://ollama:11434 ollama pull "$${OLLAMA_VISION_MODEL}"
+        fi
     environment:
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:0.6b}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-}
     networks:
       - default
     security_opt:
@@ -35,13 +45,15 @@ services:
       - ALL
   debian13-system:
     depends_on:
-      ollama-model-init:
-        condition: service_completed_successfully
+      ollama:
+        condition: service_started
     environment:
       MODEL_CHAT_URL: http://ollama:11434/v1/chat/completions
       MODEL_API_KEY: ollama-local-no-remote-secret
-      MODEL_NAME: ${OLLAMA_MODEL:-llama3.2-vision:11b}
-      VISION_MODEL_NAME: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
+      MODEL_NAME: ${OLLAMA_MODEL:-qwen3:0.6b}
+      VISION_MODEL_NAME: ${OLLAMA_VISION_MODEL:-}
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:0.6b}
       DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
 volumes:
   ollama-models:

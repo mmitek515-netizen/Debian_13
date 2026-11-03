@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 UI_DIRECTORY = Path(__file__).resolve().parent
 API_PATHS = {
     ("GET", "/api/v1/status"),
+    ("GET", "/api/v1/ollama"),
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
     ("GET", "/api/v1/integrations"),
@@ -21,6 +22,8 @@ API_PATHS = {
     ("GET", "/api/v1/tasks"),
     ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/events"),
+    ("GET", "/api/v1/sessions"),
+    ("GET", "/api/v1/original-agent-attempts"),
     ("POST", "/api/v1/chat"),
     ("POST", "/api/v1/chat/stream"),
     ("POST", "/api/v1/vision"),
