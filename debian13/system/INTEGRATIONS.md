@@ -10,11 +10,20 @@ the local UI proxy and displays **connected: false** until verified.
 
 `mcp_server.py` is a dependency-free MCP server speaking JSON-RPC over
 newline-delimited standard input/output (protocol version 2025-11-25).
-It advertises three read-only tools:
+It advertises seven read-only tools:
 
 - `debian13_profiles`: GET `/v1/profiles`
 - `debian13_diagnostics`: GET `/v1/diagnostics`
 - `debian13_integrations`: GET `/v1/integrations`
+- `debian13_work_tasks`: GET `/api/v1/tasks` (local review queue)
+- `debian13_original_agents`: GET `/api/v1/original-agents` (four source profiles and registry state)
+- `alex_existing_status`: read the original Alex task-registry status
+- `alex_existing_tasks`: read the original Alex task-registry entries
+
+The last two tools call the separately configured original API at
+`ALEX_EXISTING_API_URL` and use `ALEX_EXISTING_API_TOKEN` when required. They
+read Alex's registry only; they do not submit tasks or confirm an AI worker.
+The four-agent connection status is per registry probe, not per worker.
 
 It never offers a shell, file writes, root access, repository modification or
 arbitrary HTTP requests. The API token remains in process environment. The

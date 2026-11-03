@@ -77,3 +77,23 @@ Testy lokalne sprawdzają API, Work/SQLite, integracje i proxy GUI przy użyciu
 testowych endpointów. Nie są dowodem działającego zewnętrznego modelu, agenta,
 GPT Actions, Codex, publicznego CI ani bootowania Debian 13. Te elementy należy
 zweryfikować osobno w odpowiednim środowisku i na konkretnym commicie.
+
+### Rzeczywisty podgląd GUI
+
+Zrzuty wykonano w przeglądarce Chromium przez Playwright, 2026-11-03, na
+lokalnie uruchomionym API i GUI z drzewa roboczego opartego na commicie
+`f6e4c80`, bez skonfigurowanego modelu. To rzeczywiste widoki aplikacji, nie
+makiety ani dowód inferencji.
+Wymiary dokumentu były równe szerokościom okna przy 320, 360, 412 i 1440 px.
+Na 320 px otworzono też mobilny panel i nawigowano do widoku Work; po wyborze
+widoku panel się zamknął.
+
+- Chat, 320 × 900: [`ui/previews/debian13-chat-ui-320.png`](ui/previews/debian13-chat-ui-320.png)
+- Chat, 360 × 900: [`ui/previews/debian13-chat-ui-360.png`](ui/previews/debian13-chat-ui-360.png)
+- Chat, 412 × 900: [`ui/previews/debian13-chat-ui-412.png`](ui/previews/debian13-chat-ui-412.png)
+- Chat, 1440 × 1000: [`ui/previews/debian13-chat-ui-1440.png`](ui/previews/debian13-chat-ui-1440.png)
+- Otwarta nawigacja mobilna, 320 × 900: [`ui/previews/debian13-chat-nav-320.png`](ui/previews/debian13-chat-nav-320.png)
+- Work po utworzeniu zadania przeglądowego i zdarzeniu `task_queued`, 360 × 900:
+  [`ui/previews/debian13-work-ui-360.png`](ui/previews/debian13-work-ui-360.png)
+- Ustawienia: rzeczywisty stan czterech niepodłączonych agentów i integracji, 1440 × 1000:
+  [`ui/previews/debian13-agents-status-1440.png`](ui/previews/debian13-agents-status-1440.png)
