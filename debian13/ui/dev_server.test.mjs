@@ -353,6 +353,33 @@ test('global sync verifies all ten read-only sources without claiming a deploy',
   assert.equal(calls.every(name => name.startsWith('get')), true);
 });
 
+test('global sync finishes when a read-only source never responds', async () => {
+  const client = {
+    getStatus: async () => ({application: {status: 'running'}}),
+    getSyncState: async () => ({revision: 0, title: 'Debian 13'}),
+    getTasks: async () => ({tasks: []}),
+    getEvents: async () => ({events: []}),
+    getGitHubStatus: () => new Promise(() => {}), // Simulate stalled GitHub.
+    getIntegrations: async () => ({integrations: []}),
+    getIntegrationProgress: async () => ({
+      kind: 'local_integration_checklist', notOsCompletion: true, percentage: 30,
+    }),
+    getAiCenterStatus: async () => ({
+      type: 'local_ollama_queue', workerHeartbeatVerified: false,
+    }),
+    getCodexStatus: async () => ({module: 'codex', cliInstalled: false}),
+    getOriginalAgents: async () => ({agents: ['Alex', 'Aria', 'Astyria', 'Aurelius']}),
+  };
+  const result = await readWorkspaceSources(client, {timeoutMs: 30});
+  assert.equal(result.total, 10);
+  assert.equal(result.successful, 9);
+  assert.deepEqual(result.failed, ['GitHub']);
+  assert.equal(result.complete, false);
+  assert.equal(result.readOnly, true);
+  assert.equal(result.deployedCode, false);
+  assert.equal(result.aiExecutionVerified, false);
+});
+
 test('global sync reports partial API failure without leaking upstream secrets', async () => {
   const secret = 'secret-in-mock-network-error';
   const client = {
