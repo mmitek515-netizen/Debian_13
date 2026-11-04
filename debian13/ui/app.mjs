@@ -130,6 +130,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     chatStream,
     vision: (agent, message, image) => post('vision', { profile: agent, message, image }),
     terminal: (command) => post('terminal', { command }),
+    svl: (command) => post('svl/command', { command }),
   });
 }
 
@@ -1124,13 +1125,27 @@ function bindTerminalForm() {
     const command = commandInput?.value.trim();
     if (!command || !feedback) return;
     submit.disabled = true;
-    feedback.textContent = 'Wysyłanie do ograniczonego API terminala…';
+    const useSvl = command === 'svl' || command.startsWith('svl ');
+    feedback.textContent = useSvl
+      ? 'Przetwarzanie przez jądro SVL (tylko odczyt)…'
+      : 'Wysyłanie do ograniczonego API terminala…';
     try {
-      const result = await api.terminal(command);
-      if (typeof result.output !== 'string') throw new ApiError('API nie zwróciło wyniku tekstowego.');
-      renderTerminal(command, result.output);
-      commandInput.value = '';
-      feedback.textContent = 'Polecenie obsłużone bez uruchamiania powłoki.';
+      if (useSvl) {
+        const svlCommand = command === 'svl' ? 'pomoc' : command.slice(4).trim();
+        const result = await api.svl(svlCommand);
+        if (result.processor !== 'SVL' || result.execution !== 'read_only' || typeof result.result !== 'object') {
+          throw new ApiError('API SVL nie potwierdziło bezpiecznego wykonania polecenia.');
+        }
+        renderTerminal(command, JSON.stringify(result.result, null, 2));
+        commandInput.value = '';
+        feedback.textContent = 'Wynik SVL pochodzi z API; wykonano wyłącznie operację odczytu.';
+      } else {
+        const result = await api.terminal(command);
+        if (typeof result.output !== 'string') throw new ApiError('API nie zwróciło wyniku tekstowego.');
+        renderTerminal(command, result.output);
+        commandInput.value = '';
+        feedback.textContent = 'Polecenie obsłużone bez uruchamiania powłoki.';
+      }
     } catch (error) {
       renderTerminal(command, error.message, true);
       feedback.textContent = error.message;
