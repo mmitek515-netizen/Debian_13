@@ -489,6 +489,30 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return False
         return True
 
+    def _dialog_identity(self) -> str | None:
+        """Identify a voluntary chat participant from its own bearer credential.
+
+        Neither a client-supplied sender field nor an agent profile is proof
+        of identity. Unconfigured agents cannot publish as AI.
+        """
+        values = self.headers.get_all("Authorization", [])
+        if len(values) != 1 or not values[0].startswith("Bearer "):
+            return None
+        supplied = values[0][7:].encode("utf-8")
+        candidates = [("operator", self.server.config["api_token"])]
+        for agent in PROFILES:
+            secret = os.environ.get("DEBIAN13_DIALOG_" + agent.upper() + "_TOKEN", "")
+            if len(secret) >= 32 and len(secret) <= 512 and all(33 <= ord(c) <= 126 for c in secret):
+                candidates.append((agent, secret))
+        matched = [name for name, secret in candidates
+                   if hmac.compare_digest(supplied, secret.encode("utf-8"))]
+        # Reused credentials would make identity ambiguous: fail closed.
+        return matched[0] if len(matched) == 1 else None
+
+    def _dialog_unauthorized(self) -> None:
+        self._send_json(401, {"error": {"code": "dialog_unauthorized",
+                                       "message": "Individual agent or operator token required."}})
+
     def _allow_request(self) -> bool:
         now = time.monotonic()
         address = self.client_address[0]
@@ -583,6 +607,31 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                             {"MCP-Protocol-Version": mcp_server.PROTOCOL_VERSION})
 
     def do_GET(self) -> None:
+        parsed = urllib.parse.urlsplit(self.path)
+        if parsed.path == "/api/v1/agent-dialog/messages":
+            if not self._allow_request():
+                return
+            identity = self._dialog_identity()
+            if identity is None:
+                self._dialog_unauthorized()
+                return
+            try:
+                params = urllib.parse.parse_qs(parsed.query, strict_parsing=True, max_num_fields=1)
+                if set(params) - {"after"} or any(len(v) != 1 for v in params.values()):
+                    raise ValueError("unknown query parameter")
+                raw_after = params.get("after", ["0"])[0]
+                if not raw_after.isascii() or not raw_after.isdecimal() or len(raw_after) > 19:
+                    raise ValueError("invalid cursor")
+                after = int(raw_after)
+                messages = self.server.chat_memory.get_agent_dialog(identity, after=after)
+            except ValueError:
+                self._send_json(400, {"error": {"code": "invalid_dialog_cursor",
+                                               "message": "Use a nonnegative numeric after cursor."}})
+                return
+            self._send_json(200, {"messages": messages, "storage": "sqlite",
+                                  "audience": identity, "lastId": messages[-1]["id"] if messages else after,
+                                  "voluntary": True, "agentInferenceVerified": False})
+            return
         if self.path == "/mcp":
             self._send_json(405, {"error": "Use MCP POST transport"}, {"Allow": "POST"})
             return
@@ -737,6 +786,30 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
 
     def do_POST(self) -> None:
+        if self.path == "/api/v1/agent-dialog/messages":
+            if not self._allow_request():
+                return
+            identity = self._dialog_identity()
+            if identity is None:
+                self._dialog_unauthorized()
+                return
+            try:
+                data = self._read_json()
+                if set(data) != {"to", "content"}:
+                    raise ValueError("Only to and content are accepted.")
+                entry = self.server.chat_memory.post_agent_dialog(
+                    identity, data["to"], data["content"])
+            except ValueError:
+                self._send_json(400, {"error": {"code": "invalid_dialog_message",
+                                               "message": "Use a valid recipient and 1-4000 characters."}})
+                return
+            except ApiError as exc:
+                self._send_json(exc.status, {"error": {"code": exc.code, "message": str(exc)}})
+                return
+            self._send_json(201, {"message": entry, "accepted": True,
+                                  "agentInferenceVerified": False,
+                                  "automaticReplyScheduled": False})
+            return
         if not self._allow_request():
             return
         if not self._authorize():
