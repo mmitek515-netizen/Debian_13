@@ -117,6 +117,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
   return Object.freeze({
     getStatus: () => request('status'),
     getCodexStatus: () => request('codex/status'),
+    getAiCenterStatus: () => request('ai-center/status'),
     getAgents: () => request('agents'),
     getOriginalAgents: () => request('original-agents'),
     getIntegrations: () => request('integrations'),
@@ -128,6 +129,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getEvents: () => request('events'),
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
     cancelTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
+    approveLocalAnalysis: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/approve-analysis`, { method: 'POST' }),
     chatStream,
     vision: (agent, message, image, sessionId) => post('vision', { profile: agent, message, image, ...(sessionId ? { session_id: sessionId } : {}) }),
     terminal: (command) => post('terminal', { command }),
@@ -305,7 +307,8 @@ function renderTasks(tasks) {
     detail.textContent = `${task.title || task.kind} · ${task.agent} · ${task.id}`;
     const status = document.createElement('span');
     status.className = `task-state task-${task.status}`;
-    status.textContent = task.status;
+    status.textContent = task.execution && task.execution !== 'not_started'
+      ? task.execution.replaceAll('_', ' ') : task.status;
     const actions = document.createElement('span');
     actions.className = 'task-actions';
     if (typeof task.id === 'string' && SESSION_ID_PATTERN.test(task.id)) {
@@ -325,6 +328,24 @@ function renderTasks(tasks) {
         dispatch.setAttribute('aria-label', `Przekaż zadanie ${task.id} oryginalnemu Alexowi`);
         dispatch.addEventListener('click', () => void dispatchWorkToAlex(task.id, dispatch));
         actions.append(dispatch);
+      }
+      if (task.status === 'queued' && ['not_started', 'interrupted_local_analysis',
+            'failed_local_analysis'].includes(task.execution)) {
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.className = 'task-action';
+        approve.textContent = 'Analizuj przez Ollamę';
+        approve.setAttribute('aria-label', `Zatwierdź lokalną analizę zadania ${task.id}`);
+        approve.addEventListener('click', () => void approveWorkForOllama(task.id, approve));
+        actions.append(approve);
+      }
+      if (task.execution === 'completed_local_analysis') {
+        const result = document.createElement('button');
+        result.type = 'button';
+        result.className = 'task-action';
+        result.textContent = 'Pokaż raport';
+        result.addEventListener('click', () => void showLocalAnalysis(task.id, result));
+        actions.append(result);
       }
       if (['queued', 'running'].includes(task.status)) {
         const cancel = document.createElement('button');
@@ -346,7 +367,7 @@ function renderTasks(tasks) {
     fragment.append(empty);
   }
   list.replaceChildren(fragment);
-  setText('tasks-count', `${tasks.length} zadań · trwały zapis SQLite, bez uruchomionych workerów`);
+  setText('tasks-count', `${tasks.length} zadań · trwały zapis SQLite; status workera w Centrum AI`);
   setText('tasks-error', '');
 }
 
@@ -508,6 +529,32 @@ async function loadAgents() {
     setText('agent-count', 'Profile niedostępne');
     setText('agent-error', error.message);
     renderAgentProfiles(document.getElementById('agent-list'));
+  }
+}
+
+async function loadAiCenterStatus() {
+  if (!document.getElementById('ai-center-worker-status')) return;
+  setText('ai-center-error', '');
+  try {
+    const status = await api.getAiCenterStatus();
+    if (status.type !== 'local_ollama_queue' || typeof status.workerHeartbeatVerified !== 'boolean') {
+      throw new ApiError('Serwer zwrócił nieprawidłowy status Centrum AI.');
+    }
+    setText('ai-center-worker-badge', status.workerHeartbeatVerified ? 'Worker online' : 'Worker offline');
+    setText('ai-center-worker-status', status.workerHeartbeatVerified
+      ? 'Proces lokalny potwierdzony heartbeat; wnioskowanie wymaga testu'
+      : 'Brak aktywnego heartbeat');
+    setText('ai-center-worker-age', status.heartbeatAgeSeconds == null
+      ? 'Brak' : `${status.heartbeatAgeSeconds} sekund temu`);
+    setText('ai-center-model', status.modelConfigured || 'Brak konfiguracji');
+    const jobs = status.queuedByExecution || {};
+    setText('ai-center-queue', Object.entries(jobs).length
+      ? Object.entries(jobs).map(([state, count]) => `${state.replaceAll('_',' ')}: ${count}`).join(' · ')
+      : 'Brak przetworzonych lub zatwierdzonych zadań');
+  } catch (error) {
+    setText('ai-center-error', error.message);
+    setText('ai-center-worker-badge', 'Brak połączenia');
+    setText('ai-center-worker-status', 'Niezweryfikowany');
   }
 }
 
@@ -709,6 +756,50 @@ async function refreshTaskStatus(taskId, button) {
   }
 }
 
+async function approveWorkForOllama(taskId, button) {
+  if (button.disabled) return;
+  if (!window.confirm('Zatwierdzić lokalną analizę tego zadania przez Ollamę? Worker zapisze raport. Nie uruchomi poleceń ani nie zmieni repozytorium.')) return;
+  button.disabled = true;
+  try {
+    const response = await api.approveLocalAnalysis(taskId);
+    if (response.task?.execution !== 'approved_local_analysis') {
+      throw new ApiError('Serwer nie potwierdził akceptacji zadania.');
+    }
+    setText('work-connection-state', response.localWorkerHeartbeatVerified
+      ? 'Zatwierdzono zadanie. Aktywny worker Ollamy pobierze je z kolejki.'
+      : 'Zatwierdzono zadanie. Oczekuje na uruchomienie workera Ollamy.');
+    await refreshWork();
+  } catch (error) {
+    setText('tasks-error', error.message);
+    button.disabled = false;
+  }
+}
+
+async function showLocalAnalysis(taskId, button) {
+  button.disabled = true;
+  try {
+    const payload = await api.getTask(taskId);
+    const report = payload.localAnalysis;
+    if (!report || typeof report.content !== 'string') {
+      throw new ApiError('Raport nie jest jeszcze dostępny.');
+    }
+    const item = button.closest('[data-task-id]');
+    if (!item) return;
+    let detail = item.querySelector('.ai-task-result');
+    if (!detail) {
+      detail = document.createElement('pre');
+      detail.className = 'ai-task-result';
+      item.append(detail);
+    }
+    detail.textContent = report.content;
+    setText('work-connection-state', `Raport modelu ${report.model} (propozycja; żadnych zmian w plikach).`);
+  } catch (error) {
+    setText('tasks-error', error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function cancelWorkTask(taskId, button) {
   button.disabled = true;
   setText('work-connection-state', 'Wysyłanie żądania anulowania do API…');
@@ -729,7 +820,7 @@ async function cancelWorkTask(taskId, button) {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadTasks()]);
+  await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadTasks(), loadAiCenterStatus()]);
 }
 
 async function loadHistory(sessionId) {
@@ -771,7 +862,7 @@ function recordHistory(sessionId, title) {
 }
 
 function showView(view) {
-  const ids = { chat: 'chat-view', work: 'work-view', codex: 'codex-view', terminal: 'terminal-view', settings: 'settings-view' };
+  const ids = { chat: 'chat-view', work: 'work-view', 'ai-center': 'ai-center-view', codex: 'codex-view', terminal: 'terminal-view', settings: 'settings-view' };
   for (const [name, id] of Object.entries(ids)) {
     const section = document.getElementById(id);
     if (section) section.hidden = name !== view;
@@ -786,7 +877,7 @@ function showView(view) {
       button.setAttribute('aria-pressed', String(active));
     }
   }
-  const titles = { chat: 'Dialog Triady', work: 'Work', codex: 'Centrum Programowania Codex', terminal: 'Terminal', settings: 'Status systemu' };
+  const titles = { chat: 'Dialog Triady', work: 'Work', 'ai-center': 'Centrum AI 24/7', codex: 'Centrum Programowania Codex', terminal: 'Terminal', settings: 'Status systemu' };
   setText('page-title', titles[view] ?? titles.chat);
 }
 
@@ -837,6 +928,7 @@ function bindNavigation() {
       showView(button.dataset.view);
       if (button.dataset.view === 'work') void refreshWork();
       if (button.dataset.view === 'codex') void loadCodexStatus();
+      if (button.dataset.view === 'ai-center') void loadAiCenterStatus();
       setMobileSidebar(false);
     });
   });
@@ -1190,6 +1282,7 @@ if (typeof document !== 'undefined') {
   renderHistory();
   document.getElementById('refresh-status')?.addEventListener('click', refreshDashboard);
   document.getElementById('codex-refresh')?.addEventListener('click', loadCodexStatus);
+  document.getElementById('ai-center-refresh')?.addEventListener('click', loadAiCenterStatus);
   document.getElementById('refresh-tasks')?.addEventListener('click', refreshWork);
   void refreshDashboard();
   let savedSession = '';
