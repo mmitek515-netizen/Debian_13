@@ -135,7 +135,7 @@ class WorkStore:
             if row["status"] == "queued":
                 stamp = _now()
                 db.execute(
-                    "UPDATE tasks SET status='cancelled',updated_at=? WHERE id=? AND status='queued'",
+                    "UPDATE tasks SET status='cancelled',requires_approval=1,updated_at=? WHERE id=? AND status='queued'",
                     (stamp, task_id),
                 )
                 db.execute(
@@ -231,8 +231,8 @@ class WorkStore:
                               content: str | None = None, failed: bool = False) -> bool:
         with self._open() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT agent,execution FROM tasks WHERE id=?", (task_id,)).fetchone()
-            if row is None or row["execution"] != "running_local_analysis":
+            row = db.execute("SELECT agent,execution,status FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None or row["execution"] != "running_local_analysis" or row["status"] != "queued":
                 return False
             stamp = _now()
             execution = "failed_local_analysis" if failed else "completed_local_analysis"
