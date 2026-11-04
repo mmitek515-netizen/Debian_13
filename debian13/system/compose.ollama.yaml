@@ -24,9 +24,13 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command: |
       until OLLAMA_HOST=http://ollama:11434 ollama list >/dev/null 2>&1; do sleep 3; done
-      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL}"
+      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL:-llama3.2-vision:11b}"
+      if [ "${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}" != "${OLLAMA_MODEL:-llama3.2-vision:11b}" ]; then
+        OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}"
+      fi
     environment:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
     networks:
       - default
     security_opt:
