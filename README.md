@@ -49,6 +49,13 @@ Uruchomienie zwykłego serwera Debian 13 udostępnia uwierzytelnione
 `POST /api/v1/svl/command` z JSON, np. `{"command":"status"}`.
 Obsługiwane polecenia: `pomoc`, `status`, `metryka -inf inf`,
 `diagnostyka`, `integracje`, `agenci`, `zadania`.
+W GUI te same wywołania są dostępne z terminala przez `svl status`,
+`svl metryka -inf inf` i podobne, a w oknie czatu przez
+`/svl status`, `/svl diagnostyka` i `/svl agenci`.
+Do tych poleceń nie jest wymagany model AI ani API OpenAI;
+żądanie przechodzi przez prywatne proxy GUI i istniejącą
+autoryzację backendu. To nie zastępuje autonomicznego wykonania
+zadań przez agentów.
 
 Trasa korzysta z istniejącej autoryzacji API. Przykładowe wywołanie
 z hosta, **po załadowaniu prawidłowego tokenu tylko do środowiska terminala**:
