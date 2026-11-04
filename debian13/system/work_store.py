@@ -64,6 +64,12 @@ class WorkStore:
                     remote_task_id TEXT NOT NULL,
                     submitted_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS original_agent_submissions (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+                    agent TEXT NOT NULL,
+                    remote_task_id TEXT NOT NULL,
+                    submitted_at TEXT NOT NULL
+                );
             """)
         os.chmod(self.db_path, 0o600)
 
@@ -177,6 +183,39 @@ class WorkStore:
                 (task_id, "alex", "task_accepted_by_remote_api", stamp)
             )
         return self.get_alex_submission(task_id)
+
+    def get_original_submission(self, task_id: str) -> dict | None:
+        with self._open() as db:
+            row = db.execute(
+                "SELECT agent,remote_task_id,submitted_at FROM original_agent_submissions "
+                "WHERE task_id=?", (task_id,)).fetchone()
+        return ({"agent": row["agent"], "remoteTaskId": row["remote_task_id"],
+                 "submittedAt": row["submitted_at"],
+                 "agentExecutionVerified": False, "pullRequestVerified": False,
+                 "status": "accepted_by_remote_api"} if row else None)
+
+    def record_original_submission(self, task_id: str, remote_task_id: str) -> dict:
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT agent,status,execution FROM tasks WHERE id=?", (task_id,)
+            ).fetchone()
+            if (row is None or row["status"] != "queued"
+                    or row["execution"] != "not_started"
+                    or self.get_alex_submission(task_id) is not None):
+                raise ValueError("Task no longer eligible for original agent review.")
+            if db.execute("SELECT 1 FROM original_agent_submissions WHERE task_id=?",
+                          (task_id,)).fetchone():
+                raise ValueError("Original agent handoff already recorded.")
+            stamp = _now()
+            db.execute(
+                "INSERT INTO original_agent_submissions"
+                "(task_id,agent,remote_task_id,submitted_at) VALUES (?,?,?,?)",
+                (task_id, row["agent"], remote_task_id, stamp))
+            db.execute(
+                "INSERT INTO events(task_id,agent,type,at) VALUES (?,?,?,?)",
+                (task_id, row["agent"], "original_review_accepted_by_api", stamp))
+        return self.get_original_submission(task_id)
 
     # Local Ollama workers operate on explicitly approved, safe analysis jobs.
     # These methods NEVER run shell commands or permit remote network actions.
