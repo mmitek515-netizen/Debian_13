@@ -414,6 +414,17 @@ codex mcp list</pre>
               <div><dt>Model</dt><dd id="model-status">Ładowanie…</dd></div>
               <div><dt>Zadania w pamięci</dt><dd id="task-storage-status">Ładowanie…</dd></div>
             </dl>
+            <h3 class="settings-subheading">Procenty integracji — potwierdzone kontrole</h3>
+            <p class="work-limit-note">
+              Wynik to odsetek 20 jawnych kontroli połączeń, a nie procent ukończenia
+              systemu Debian 13 ani dowód wdrożenia. Profile i działający proces
+              nie potwierdzają jeszcze wykonania poleceń przez oryginalne AI.
+            </p>
+            <p id="integration-progress-total" role="status" aria-live="polite">Trwa sprawdzanie…</p>
+            <p id="integration-progress-error" class="status-error" role="alert"></p>
+            <ul id="integration-progress-list" class="agent-grid" aria-label="Procenty integracji według danych API">
+              <li class="empty-state">Pobieranie zweryfikowanych kontroli…</li>
+            </ul>
             <h3 class="settings-subheading">Integracje: Codex, MCP i GPT Actions</h3>
             <p class="work-limit-note">
               Statusy pochodzą z API. Dostępny plik integracji nie oznacza aktywnego
