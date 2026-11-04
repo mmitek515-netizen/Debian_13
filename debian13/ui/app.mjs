@@ -116,6 +116,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
 
   return Object.freeze({
     getStatus: () => request('status'),
+    getCodexStatus: () => request('codex/status'),
     getAgents: () => request('agents'),
     getOriginalAgents: () => request('original-agents'),
     getIntegrations: () => request('integrations'),
