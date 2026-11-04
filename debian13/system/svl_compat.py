@@ -100,3 +100,46 @@ def inspect_svl(workspace: Path) -> dict:
     except (OSError, ValueError, UnicodeError, TypeError, OverflowError):
         result["error"] = "legacy_state_invalid_or_unavailable"
     return result
+
+def terminal_svl_report(workspace: Path, action: str) -> dict:
+    """Allowlisted, non-executing SVL utility for the private Debian13 terminal.
+
+    Only consumes sanitized data from inspect_svl(); no user content, tokens,
+    arbitrary JSON fields or real shell commands are exposed or processed.
+    """
+    if action not in {"status", "report", "profiles"}:
+        raise ValueError("invalid_svl_action")
+    result = inspect_svl(workspace)
+    if not result["stateValid"]:
+        return {
+            "exitCode": 1,
+            "stdout": "",
+            "stderr": "SVL: stan nieprawidłowy lub niedostępny; brak zmian danych.\\n",
+        }
+    if action == "profiles":
+        content = (
+            "Profile skonfigurowane w SVL (NIE są to uruchomieni agenci):\\n"
+            + "\\n".join(result["profileNamesConfigured"])
+            + "\\n"
+        )
+    elif action == "report":
+        allowed = (
+            "source", "kind", "version", "mode", "storePresent",
+            "stateValid", "configMigratedInMemory", "chatHistoryEntries",
+            "updateEntries", "profilesAreActiveWorkers",
+            "operatingSystemBootVerified", "modelInferenceVerified",
+            "cloudSyncVerified", "readOnly",
+        )
+        content = json.dumps(
+            {key: result.get(key) for key in allowed},
+            ensure_ascii=False, indent=2,
+        ) + "\\n"
+    else:
+        content = (
+            "SVL Python: " + result["version"] + "\\n"
+            + "Tryb: " + result["mode"] + "\\n"
+            + "Źródło: " + result["source"] + "\\n"
+            + "Magazyn: " + ("plik" if result["storePresent"] else "ustawienia domyślne") + "\\n"
+            + "Nie uruchomiono jądra Debian ani agentów AI.\\n"
+        )
+    return {"exitCode": 0, "stdout": content, "stderr": ""}
