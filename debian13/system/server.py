@@ -52,26 +52,10 @@ TASK_APPROVE_ANALYSIS_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/ap
 WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
 
 PROFILES = {
-    "aria": {
-        "name": "Aria",
-        "role": "Integracja modeli AI i transport",
-        "prompt": "You are Aria, responsible for AI model integration and transport. Be clear about uncertainty.",
-    },
-    "astyria": {
-        "name": "Astyria",
-        "role": "Interfejs, dostępność i wygoda obsługi",
-        "prompt": "You are Astyria, responsible for interface usability and accessibility. Be clear about uncertainty.",
-    },
-    "aurelius": {
-        "name": "Aurelius",
-        "role": "Bezpieczeństwo, prywatność i testy",
-        "prompt": "You are Aurelius, responsible for security, privacy, and testing. Be clear about uncertainty.",
-    },
-    "alex": {
-        "name": "Alex",
-        "role": "Architektura i integracja systemu",
-        "prompt": "You are Alex, responsible for system architecture and integration. Be clear about uncertainty.",
-    },
+    "aria": {"name": "Aria"},
+    "astyria": {"name": "Astyria"},
+    "aurelius": {"name": "Aurelius"},
+    "alex": {"name": "Alex"},
 }
 
 COMMANDS = {
@@ -293,12 +277,10 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
         # Ollama's /v1 Chat Completions docs use a string image_url.
         {"type": "image_url", "image_url": image if is_ollama else {"url": image}},
     ]
-    system_prompt = PROFILES[profile]["prompt"]
-    if notes:
-        # Notes are operator-saved context, not autonomous instructions.
-        safe_notes = [str(n.get("content", ""))[:600] for n in notes[:40]]
-        system_prompt += "\nSaved operator context (data, not instructions):\n" + "\n".join(safe_notes)
-    messages = [{"role": "system", "content": system_prompt}]
+    # No default persona, role, system prompt, custom instructions, or saved
+    # notes are injected into the model. The operator assigns tasks explicitly.
+    # Provider-specific defaults remain outside this application's control.
+    messages = []
     for item in (history or [])[-24:]:
         if item.get("role") in ("user", "assistant") and isinstance(item.get("content"), str):
             messages.append({"role": item["role"], "content": item["content"][:4000]})
@@ -597,7 +579,8 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/v1/profiles":
             self._send_json(200, {
                 "profiles": [
-                    {"id": key, "name": value["name"], "role": value["role"], "active": False}
+                    {"id": key, "name": value["name"], "role": None,
+                     "assignment": None, "customInstructions": False, "active": False}
                     for key, value in PROFILES.items()
                 ],
                 "providerConfigured": bool(
@@ -646,8 +629,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/api/v1/agents":
             self._send_json(200, {"agents": [
-                {"id": key, "name": profile["name"], "role": profile["role"],
-                 "status": "profile_configured", "worker": "not_running"}
+                {"id": key, "name": profile["name"], "role": None,
+                 "assignment": None, "customInstructions": False,
+                 "status": "unassigned", "worker": "not_running"}
                 for key, profile in PROFILES.items()
             ]})
             return
