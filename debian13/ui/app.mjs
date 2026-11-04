@@ -23,7 +23,9 @@ function apiErrorMessage(payload, status) {
   if (status === 404) return 'Backend nie udostępnia tego endpointu (404).';
   return typeof payload?.error === 'string'
     ? payload.error
-    : `Żądanie nie powiodło się (HTTP ${status}).`;
+    : typeof payload?.error?.message === 'string'
+      ? payload.error.message
+      : `Żądanie nie powiodło się (HTTP ${status}).`;
 }
 
 export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } = {}) {
@@ -934,6 +936,30 @@ function bindChatForm() {
     const text = message?.value.trim();
     if (!text || !agent || !feedback || activeChatController || visionBusy) return;
     const file = attachment?.files?.[0] ?? null;
+    if (!file && (text === '/svl' || text.startsWith('/svl '))) {
+      const svlCommand = text === '/svl' ? 'pomoc' : text.slice(5).trim();
+      const name = 'SVL · Python';
+      appendTranscript('user', 'Ty · komenda SVL', text);
+      const response = appendTranscript('assistant', name, 'Przetwarzanie polecenia…');
+      submit.disabled = true;
+      feedback.textContent = 'Weryfikacja polecenia przez API SVL…';
+      try {
+        const result = await api.svl(svlCommand);
+        if (result.processor !== 'SVL' || result.execution !== 'read_only' || typeof result.result !== 'object') {
+          throw new ApiError('API SVL nie potwierdziło wykonania polecenia tylko do odczytu.');
+        }
+        if (response) response.text.textContent = JSON.stringify(result.result, null, 2);
+        message.value = '';
+        feedback.textContent = 'Otrzymano wynik Python SVL; bez uruchamiania agentów lub powłoki.';
+      } catch (error) {
+        response?.entry.remove();
+        appendTranscript('error', 'Błąd SVL', error.message);
+        feedback.textContent = error.message;
+      } finally {
+        submit.disabled = false;
+      }
+      return;
+    }
     if (file) {
       visionBusy = true;
       submit.disabled = true;
