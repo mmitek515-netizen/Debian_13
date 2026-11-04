@@ -45,7 +45,7 @@ try:
 except (ValueError, AssertionError):
     raise SystemExit("ERROR: Provide distinct valid ports DEBIAN13_API_PORT and DEBIAN13_UI_PORT.")
 PY
-if [[ -n "${MODEL_CHAT_URL:-}" ]]; then
+if [[ "${DEBIAN13_LOCAL_OLLAMA:-0}" != "1" && -n "${MODEL_CHAT_URL:-}" ]]; then
   if [[ -z "${MODEL_API_KEY:-}" || -z "${MODEL_NAME:-}" ]]; then
     echo "ERROR: MODEL_CHAT_URL also requires MODEL_API_KEY and MODEL_NAME." >&2
     exit 1
