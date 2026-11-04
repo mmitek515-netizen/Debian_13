@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { readWorkspaceSources } from './global_sync.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 const TEST_SESSION_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -319,4 +320,77 @@ test('integration progress is read-only and uses only the server-side token', as
   });
   assert.equal(denied.status, 404);
   assert.equal(upstream.requests.length, 1, 'POST must never reach the runtime');
+});
+
+test('global sync verifies all ten read-only sources without claiming a deploy', async () => {
+  const calls = [];
+  const responses = {
+    getStatus: {application: {status: 'running'}},
+    getSyncState: {revision: 2, title: 'Debian13'},
+    getTasks: {tasks: []},
+    getEvents: {events: []},
+    getGitHubStatus: {githubApiReachable: true, partial: false},
+    getIntegrations: {integrations: []},
+    getIntegrationProgress: {kind: 'local_integration_checklist', notOsCompletion: true, percentage: 30},
+    getAiCenterStatus: {type: 'local_ollama_queue', workerHeartbeatVerified: false},
+    getCodexStatus: {module: 'codex', cliInstalled: false},
+    getOriginalAgents: {agents: ['Alex','Aria','Astyria','Aurelius']},
+  };
+  const client = Object.fromEntries(Object.entries(responses).map(([key, value]) => [
+    key, async () => { calls.push(key); return value; },
+  ]));
+  client.deployCode = () => { throw new Error('Must never deploy source'); };
+  client.dispatchAgent = () => { throw new Error('Must never start AI'); };
+  const result = await readWorkspaceSources(client);
+  assert.equal(result.total, 10);
+  assert.equal(result.successful, 10);
+  assert.deepEqual(result.failed, []);
+  assert.equal(result.complete, true);
+  assert.equal(result.readOnly, true);
+  assert.equal(result.deployedCode, false);
+  assert.equal(result.aiExecutionVerified, false);
+  assert.equal(calls.length, 10);
+  assert.equal(calls.every(name => name.startsWith('get')), true);
+});
+
+test('global sync reports partial API failure without leaking upstream secrets', async () => {
+  const secret = 'secret-in-mock-network-error';
+  const client = {
+    getStatus: async () => ({application: {status: 'running'}}),
+    getSyncState: async () => ({revision: 0, title: 'Panel'}),
+    getTasks: async () => ({tasks: []}),
+    getEvents: async () => ({events: []}),
+    getGitHubStatus: async () => { throw new Error(secret); },
+    getIntegrations: async () => ({integrations: []}),
+    getIntegrationProgress: async () => ({kind: 'local_integration_checklist', notOsCompletion: true, percentage: 30}),
+    getAiCenterStatus: async () => ({type: 'local_ollama_queue', workerHeartbeatVerified: false}),
+    getCodexStatus: async () => ({module: 'codex', cliInstalled: false}),
+    getOriginalAgents: async () => ({agents: []}),
+  };
+  const value = await readWorkspaceSources(client);
+  assert.equal(value.complete, false);
+  assert.equal(value.successful, 8);
+  assert.deepEqual(value.failed, ['GitHub','Profile AI']);
+  assert.equal(JSON.stringify(value).includes(secret), false);
+  assert.equal(value.deployedCode, false);
+  const noCodex = {...client};
+  delete noCodex.getCodexStatus;
+  const missingMethod = await readWorkspaceSources(noCodex);
+  assert.equal(missingMethod.successful, 7);
+  assert.deepEqual(missingMethod.failed, ['GitHub', 'Codex', 'Profile AI']);
+});
+
+test('global sync UI control and read-only JS are served locally', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port);
+  const index = await fetch(base + '/');
+  assert.equal(index.status, 200);
+  const html = await index.text();
+  assert.match(html, /id="global-sync"/);
+  assert.match(html, /id="global-sync-status"/);
+  assert.match(html, /Nie wdraża kodu/);
+  const module = await fetch(base + '/global_sync.mjs');
+  assert.equal(module.status, 200);
+  assert.match(await module.text(), /readWorkspaceSources/);
+  assert.equal(upstream.requests.length, 0);
 });
