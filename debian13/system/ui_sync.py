@@ -9,6 +9,7 @@ import os
 import re
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 DEFAULT_TITLE = "Dialog Triady"
@@ -62,11 +63,16 @@ class SyncStore:
             """)
         os.chmod(self.path, 0o600)
 
+    @contextmanager
     def _open(self):
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA busy_timeout=10000")
-        return db
+        try:
+            yield db
+            db.commit()
+        finally:
+            db.close()
 
     def snapshot(self) -> dict:
         with self._open() as db:
