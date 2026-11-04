@@ -1,0 +1,100 @@
+# Debian 13 — opt-in read-only MCP HTTP gateway
+
+**Status:** local implementation and CI tests only. This does **not** publish
+a remote MCP service, install a ChatGPT plugin, connect a real agent or provide
+an autonomous worker. The original source registry is not proof of inference.
+
+## Why this is separate
+
+`mcp_server.py` already provides seven read-only tools over stdio.
+`mcp_http_gateway.py` exposes the same tool contract on a **stateless,
+loopback-only HTTP POST /mcp** transport (legacy MCP protocol 2025-11-25).
+It does not add shell/root operations, task creation/dispatch, file writes,
+GitHub operations, payments or arbitrary URLs.
+
+The gateway has a separate strong Bearer secret, validates Host and Origin,
+rejects redirects via the existing backend MCP proxy, rejects unsupported
+methods, caps incoming requests at 64 KiB, and accepts only JSON-RPC requests
+for the existing MCP methods.
+
+**This transport implements 2025-11-25, not the newer 2026-07-28 request
+metadata revision.** Modern clients must negotiate compatible transport or
+this gateway needs to be upgraded after a real client compatibility test.
+
+## Run locally (Python, no external service)
+
+Start the existing app in terminal A:
+
+```sh
+bash debian13/start-local.sh
+```
+
+In a separate terminal B (use the same operator token file created by
+`start-local.sh`, without committing or printing secrets):
+
+```sh
+export DEBIAN13_SYSTEM_API_URL="http://127.0.0.1:8765"
+export DEBIAN13_API_TOKEN="$(cat "$HOME/.local/state/debian13/operator-token")"
+export DEBIAN13_MCP_GATEWAY_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+python3 debian13/system/mcp_http_gateway.py
+```
+
+If you set `DEBIAN13_STATE_DIR` or `DEBIAN13_API_PORT`, adjust the file
+path/port accordingly. The gateway listens on **127.0.0.1:8766** only.
+Keep the `DEBIAN13_MCP_GATEWAY_TOKEN` in the client/host secret store; losing
+it after restarting the shell invalidates old client credentials. In
+production use a persistent managed secret. Gateway and API tokens must differ.
+
+The Python entry point does not expose a public listener. It does not ask
+the server to download an Ollama model or consume a paid API request.
+
+### Basic authenticated HTTP test
+
+Use a local MCP client that sends `POST /mcp`, an `Authorization: Bearer`
+header containing the gateway token, JSON content and an Accept header with
+both `application/json` and `text/event-stream`. First initialize:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"local-probe","version":"1"}}}
+```
+
+Then send the `notifications/initialized` notification (returns HTTP 202),
+`tools/list`, and read-only `tools/call` (one HTTP POST per message).
+Use `MCP-Protocol-Version: 2025-11-25` after initialization. The gateway
+does **not** implement standalone GET SSE streams: GET /mcp returns 405.
+No browser CORS access is enabled by default.
+
+Run regression tests:
+
+```sh
+python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
+```
+
+## Before any ChatGPT or external access
+
+1. Confirm that the current ChatGPT plan and custom-plugin permissions
+   support this connection. A ChatGPT Plus subscription alone does not make
+   this loopback endpoint reachable or provide OpenAI API credits.
+2. Prefer **Secure MCP Tunnel** for a private server when supported.
+   Otherwise use an operator-controlled TLS reverse proxy **with a reviewed
+   identity layer** (OAuth/OIDC if required by the client), per-user scopes,
+   request limits and short-lived credentials. A static gateway Bearer token
+   alone is **not** sufficient for public exposure.
+3. If using a reverse proxy, it must connect only to 127.0.0.1:8766,
+   rewrite `Host` to `127.0.0.1:8766`, preserve the intended Origin,
+   and block access to the backend API and any other local ports.
+4. If a client sends an Origin header, explicitly allow only that trusted
+   exact **HTTPS origin** using
+   `DEBIAN13_MCP_ALLOWED_ORIGINS=https://trusted.example`.
+   Never set a wildcard. By default all supplied Origin values are rejected;
+   requests without Origin still require the gateway Bearer token.
+5. Complete live client negotiation, tool discovery, authorization, and
+   negative-security tests; only then consider marking the service
+   connected in the GUI. Confirm whether the client requires the newer
+   MCP 2026-07-28 transport or additional OAuth features.
+6. Obtain operator approval before deploying any network entry point;
+   do not make a Codespaces port public or merge this PR automatically.
+
+The gateway cannot make your original four AI workers run in the
+background. It only exposes truthful read-only status and queued Work tasks
+which are stored but not executed by an autonomous worker.
