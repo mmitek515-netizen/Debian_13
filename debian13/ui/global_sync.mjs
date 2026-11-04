@@ -13,14 +13,28 @@ const SOURCES = Object.freeze([
   ['Profile AI', 'getOriginalAgents', data => Array.isArray(data?.agents) && data.agents.length === 4],
 ]);
 
-export async function readWorkspaceSources(client) {
-  // allSettled guarantees that one unavailable integration doesn't mask others.
-  // A reachable status endpoint does not prove its external provider is online.
+const SOURCE_TIMEOUT_MS = 10000;
+
+export async function readWorkspaceSources(client, { timeoutMs = SOURCE_TIMEOUT_MS } = {}) {
+  // A hung source must not prevent the Synchronizuj button from completing.
+  // Timeouts affect only read-only status checks; no deploy/agent action is started.
+  const limit = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30000
+    ? timeoutMs : SOURCE_TIMEOUT_MS;
   const outcomes = await Promise.allSettled(SOURCES.map(async ([, method]) => {
     if (typeof client?.[method] !== 'function') {
       throw new Error('Endpoint not implemented');
     }
-    return client[method]();
+    let timer;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(() => client[method]()),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Source read timed out')), limit);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }));
   const succeeded = [];
   const failed = [];
