@@ -18,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 START = ROOT / "debian13" / "start-local.sh"
+PREFLIGHT = ROOT / "debian13" / "system" / "mcp_preflight.py"
 API_TOKEN = "test-debian13-api-secret-must-be-32-chars"
 
 
@@ -101,6 +102,32 @@ class MCPStartupTests(unittest.TestCase):
                         self.assertNotEqual(token, API_TOKEN)
                         self.assertEqual(stat.S_IMODE(token_file.stat().st_mode), 0o600)
                         self.assertIsNone(process.poll(), "Launcher unexpectedly stopped")
+                        # Run a real subprocess against the active private gateway, using
+                        # only the persisted token file (never passing it on the command line).
+                        probe = subprocess.run(
+                            [sys.executable, str(PREFLIGHT)],
+                            cwd=ROOT, env=env, capture_output=True, text=True, timeout=15,
+                        )
+                        self.assertEqual(probe.returncode, 0, probe.stderr)
+                        report = json.loads(probe.stdout)
+                        self.assertEqual(report["localMcpStatus"], "verified")
+                        self.assertEqual(report["readOnlyToolCount"], 7)
+                        self.assertEqual(report["chatgptExternalConnection"], "not_tested")
+                        self.assertFalse(report["originalAgentExecutionVerified"])
+                        self.assertNotIn(token, probe.stdout)
+                        self.assertNotIn(API_TOKEN, probe.stdout)
+
+                        # Client must fail closed with an incorrect token.
+                        wrong_env = {**env, "DEBIAN13_MCP_GATEWAY_TOKEN":
+                                     "deliberately-invalid-but-long-enough-token"}
+                        rejected = subprocess.run(
+                            [sys.executable, str(PREFLIGHT)], cwd=ROOT,
+                            env=wrong_env, capture_output=True, text=True, timeout=8,
+                        )
+                        self.assertNotEqual(rejected.returncode, 0)
+                        self.assertIn("BLOCKED", rejected.stderr)
+                        self.assertNotIn(token, rejected.stderr)
+                        self.assertNotIn(API_TOKEN, rejected.stderr)
                         # Browser requests or unauthorized external apps cannot read MCP tools.
                         unauthorized = urllib.request.Request(
                             "http://127.0.0.1:" + str(mcp_port) + "/mcp",
