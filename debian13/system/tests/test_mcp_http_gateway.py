@@ -160,6 +160,24 @@ class MCPHTTPGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result["error"]["code"], -32602)
 
+    def test_duplicate_auth_headers_are_rejected(self):
+        payload = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.gateway.server_port, timeout=4)
+        try:
+            connection.putrequest("POST", "/mcp")
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Accept", ACCEPT)
+            connection.putheader("Content-Length", str(len(payload)))
+            connection.putheader("Authorization", "Bearer " + GATEWAY_TOKEN)
+            connection.putheader("Authorization", "Bearer " + GATEWAY_TOKEN)
+            connection.endheaders(payload)
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+        finally:
+            connection.close()
+
     def test_startup_rejects_insecure_bindings_and_bad_origins(self):
         with self.assertRaises(ValueError):
             MCPHTTPGateway(("0.0.0.0", 0), GATEWAY_TOKEN)
