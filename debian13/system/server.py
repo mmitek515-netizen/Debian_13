@@ -27,6 +27,7 @@ from pathlib import Path
 from work_store import WorkStore
 from chat_memory import ChatMemory
 import mcp_server
+from codex_status import report as codex_status_report
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 
@@ -632,6 +633,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 },
                 "task_state": "Brak uruchomionych workerów",
             })
+            return
+        if self.path == "/api/v1/codex/status":
+            self._send_json(200, codex_status_report())
             return
         if self.path == "/api/v1/original-agents":
             self._send_json(200, original_agents_report())
