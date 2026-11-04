@@ -46,6 +46,10 @@ def _request(port: int, token: str, request: dict) -> dict:
     )
     try:
         with urllib.request.build_opener(NoRedirect()).open(req, timeout=4) as res:
+            if "id" not in request:
+                if res.status != 202 or res.read(1):
+                    raise ProbeError("MCP notification was not accepted with an empty response.")
+                return {}
             if res.status != 200 or not res.headers.get("Content-Type", "").startswith("application/json"):
                 raise ProbeError("MCP returned an unexpected HTTP status or content type.")
             raw_response = res.read(MAX_RESULT + 1)
@@ -95,6 +99,9 @@ def check_local(port: int, token: str) -> dict:
     if initialized.get("protocolVersion") != MCP_PROTOCOL:
         raise ProbeError("MCP protocol negotiation did not match.")
 
+    _request(port, token, {
+        "jsonrpc": "2.0", "method": "notifications/initialized",
+    })
     listed = _request(port, token, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
     tools = listed.get("tools")
     if not isinstance(tools, list):
