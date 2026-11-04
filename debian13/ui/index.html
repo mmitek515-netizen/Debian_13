@@ -175,15 +175,18 @@
               „Zatwierdź analizę Ollama” kieruje je do niezależnego workera,
               gdy działa serwer. Worker generuje raport do wglądu, ale nie
               wykonuje kodu, nie zatwierdza zakupów ani nie łączy PR.
+              Opcja „Wyślij do AI” przekazuje wybrane zadanie do oryginalnego
+              serwera agentów po sprawdzeniu autoryzacji i zgodności API.
+              Nie nadaje agentom stałych ról ani własnych instrukcji.
             </p>
             <form id="work-create-form" class="work-task-form" aria-labelledby="work-create-title">
               <h3 id="work-create-title">Dodaj zadanie do kolejki</h3>
               <label for="work-task-agent">Agent odpowiedzialny za plan</label>
               <select id="work-task-agent" required>
-                <option value="alex">Alex — architektura</option>
-                <option value="aria">Aria — modele AI</option>
-                <option value="astyria">Astyria — interfejs</option>
-                <option value="aurelius">Aurelius — bezpieczeństwo</option>
+                <option value="alex">Alex</option>
+                <option value="aria">Aria</option>
+                <option value="astyria">Astyria</option>
+                <option value="aurelius">Aurelius</option>
               </select>
               <label for="work-task-kind">Rodzaj zadania</label>
               <select id="work-task-kind" required>
@@ -199,6 +202,9 @@
               <button class="button button-primary" id="work-create-submit" type="submit">Zapisz do przeglądu</button>
               <p id="work-create-feedback" role="status" aria-live="polite" class="form-feedback"></p>
             </form>
+            <p id="original-review-state" class="work-limit-note" role="status" aria-live="polite">
+              Sprawdzanie dostępności oryginalnych agentów AI (tylko kolejka przeglądu; bez wykonywania kodu).
+            </p>
             <p id="alex-dispatch-state" class="work-limit-note" role="status" aria-live="polite">
               Oryginalny Alex: oczekuje na sprawdzenie możliwości wysyłania zadań.
               Przekazanie polecenia nie oznacza zakończenia pracy.
