@@ -31,6 +31,7 @@ from chat_memory import ChatMemory
 import mcp_server
 from codex_status import report as codex_status_report
 from integration_progress import report as integration_progress_report
+from svl_compat import inspect_svl
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 from original_agent_handoff import (
@@ -683,6 +684,7 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     "inference": "unverified",
                 },
                 "task_state": ("Worker Ollama: heartbeat potwierdzony" if self.server.work_store.local_worker_status()["workerHeartbeatVerified"] else "Worker Ollama: niepotwierdzony"),
+                "svl": inspect_svl(self.server.workspace),
             })
             return
         if self.path == "/api/v1/ai-center/status":
@@ -690,6 +692,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/api/v1/codex/status":
             self._send_json(200, codex_status_report())
+            return
+        if self.path == "/api/v1/svl/status":
+            self._send_json(200, inspect_svl(self.server.workspace))
             return
         if self.path == "/api/v1/integration-progress":
             self._send_json(200, integration_progress_report(
@@ -948,7 +953,7 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     if not self.server.chat_memory.exists(session_id):
                         raise ApiError(404, "session_not_found", "Session not found.")
                 clean_message = message.strip()
-                if image is None and clean_message.casefold() in ("/status", "/integracje", "/postep"):
+                if image is None and clean_message.casefold() in ("/status", "/integracje", "/postep", "/svl"):
                     # Explicit operator commands: deterministic, read-only, no LLM or shell.
                     if clean_message.casefold() == "/status":
                         diagnostic = runtime_diagnostics(self.server)
@@ -959,6 +964,15 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                             f"Worker lokalny Ollama: {'heartbeat aktualny' if local['workerHeartbeatVerified'] else 'brak potwierdzonego heartbeat'}.\n"
                             "Oryginalni agenci i start pełnego systemu Debian 13: niezweryfikowane."
                         )
+                    elif clean_message.casefold() == "/svl":
+                        svl = inspect_svl(self.server.workspace)
+                        content = (
+                            "SVL Python: wersja " + str(svl.get("version", "nieznana")) + "\\n"
+                            + "Magazyn stanu: " + ("dostępny" if svl.get("storePresent") else "tylko ustawienia domyślne") + "\\n"
+                            + "Historia: " + str(svl.get("chatHistoryEntries", 0)) + " wiadomości, "
+                            + str(svl.get("updateEntries", 0)) + " aktualizacji.\\n"
+                            + "To starszy silnik stanu SVL; nie uruchamia jądra Debian, root ani agentów AI."
+                        ) if svl.get("stateValid") else "SVL: magazyn nieprawidłowy lub niedostępny; bez zmian danych."
                     else:
                         progress = integration_progress_report(
                             codex=codex_status_report(),
