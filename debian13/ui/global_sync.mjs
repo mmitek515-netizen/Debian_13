@@ -15,26 +15,33 @@ const SOURCES = Object.freeze([
 
 const SOURCE_TIMEOUT_MS = 10000;
 
+// Shared bounded read for provider probes and view refreshes. Does not abort
+// an underlying request; callers must never interpret a timeout as cancellation.
+export async function readWithTimeout(operation, timeoutMs = SOURCE_TIMEOUT_MS) {
+  if (typeof operation !== 'function') throw new TypeError('Read operation required');
+  const limit = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30000
+    ? timeoutMs : SOURCE_TIMEOUT_MS;
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operation),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Source read timed out')), limit);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function readWorkspaceSources(client, { timeoutMs = SOURCE_TIMEOUT_MS } = {}) {
   // A hung source must not prevent the Synchronizuj button from completing.
   // Timeouts affect only read-only status checks; no deploy/agent action is started.
-  const limit = Number.isSafeInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= 30000
-    ? timeoutMs : SOURCE_TIMEOUT_MS;
   const outcomes = await Promise.allSettled(SOURCES.map(async ([, method]) => {
     if (typeof client?.[method] !== 'function') {
       throw new Error('Endpoint not implemented');
     }
-    let timer;
-    try {
-      return await Promise.race([
-        Promise.resolve().then(() => client[method]()),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('Source read timed out')), limit);
-        }),
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
+    return readWithTimeout(() => client[method](), timeoutMs);
   }));
   const succeeded = [];
   const failed = [];
