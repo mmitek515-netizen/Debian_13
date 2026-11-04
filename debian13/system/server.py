@@ -967,10 +967,10 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     elif clean_message.casefold() == "/svl":
                         svl = inspect_svl(self.server.workspace)
                         content = (
-                            "SVL Python: wersja " + str(svl.get("version", "nieznana")) + "\\n"
-                            + "Magazyn stanu: " + ("dostępny" if svl.get("storePresent") else "tylko ustawienia domyślne") + "\\n"
+                            "SVL Python: wersja " + str(svl.get("version", "nieznana")) + "\n"
+                            + "Magazyn stanu: " + ("dostępny" if svl.get("storePresent") else "tylko ustawienia domyślne") + "\n"
                             + "Historia: " + str(svl.get("chatHistoryEntries", 0)) + " wiadomości, "
-                            + str(svl.get("updateEntries", 0)) + " aktualizacji.\\n"
+                            + str(svl.get("updateEntries", 0)) + " aktualizacji.\n"
                             + "To starszy silnik stanu SVL; nie uruchamia jądra Debian, root ani agentów AI."
                         ) if svl.get("stateValid") else "SVL: magazyn nieprawidłowy lub niedostępny; bez zmian danych."
                     else:
