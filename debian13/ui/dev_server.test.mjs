@@ -262,3 +262,20 @@ test('original Alex capability and explicit operator handoff stay behind tokeniz
   assert.equal(blocked.status, 400);
   assert.equal(upstream.requests.length, 2, 'invalid dispatch must not reach API');
 });
+
+test('Codex private diagnostic proxy is read-only and forwards only server token', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'codex-private-test-token');
+  const response = await fetch(`${base}/api/v1/codex/status`, {
+    headers: {Authorization: 'Bearer browser-token-not-forwarded'},
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {ok: true, path: '/api/v1/codex/status'});
+  assert.equal(upstream.requests.at(-1).authorization, 'Bearer codex-private-test-token');
+  assert.equal(upstream.requests.at(-1).url, '/api/v1/codex/status');
+  const denied = await fetch(`${base}/api/v1/codex/execute`, {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body:'{}',
+  });
+  assert.equal(denied.status, 404);
+  assert.equal(upstream.requests.length, 1);
+});
