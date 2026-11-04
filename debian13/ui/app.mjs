@@ -511,6 +511,31 @@ async function loadAgents() {
   }
 }
 
+async function loadCodexStatus() {
+  if (!document.getElementById('codex-cli-status')) return;
+  setText('codex-error', '');
+  try {
+    const status = await api.getCodexStatus();
+    if (status.module !== 'codex' || typeof status.cliInstalled !== 'boolean') {
+      throw new ApiError('Codex API zwróciło nieprawidłowy status.');
+    }
+    setText('codex-cli-status', status.cliInstalled ? 'Zainstalowany na hoście API' : 'Brak na hoście API');
+    setText('codex-version-status', status.version ?? 'Niedostępna');
+    const auth = {authenticated: 'Zalogowano na hoście API', not_authenticated: 'Wymagane logowanie',
+                  not_installed: 'Najpierw zainstaluj Codex CLI', check_unavailable: 'Nie udało się sprawdzić',
+                  not_checked: 'Nie sprawdzono', unknown: 'Stan niejednoznaczny'};
+    setText('codex-login-status', auth[status.authentication] ?? 'Nie potwierdzono');
+    setText('codex-worker-status', status.cloudWorkerVerified === true
+      ? 'Zweryfikowany worker' : 'Niezweryfikowany / nieuruchomiony przez ten panel');
+  } catch (error) {
+    setText('codex-error', error.message);
+    for (const id of ['codex-cli-status', 'codex-login-status',
+                      'codex-version-status', 'codex-worker-status']) {
+      setText(id, 'Nie udało się pobrać');
+    }
+  }
+}
+
 async function loadIntegrations() {
   const list = document.getElementById('integration-list');
   if (!list) return;
@@ -746,7 +771,7 @@ function recordHistory(sessionId, title) {
 }
 
 function showView(view) {
-  const ids = { chat: 'chat-view', work: 'work-view', terminal: 'terminal-view', settings: 'settings-view' };
+  const ids = { chat: 'chat-view', work: 'work-view', codex: 'codex-view', terminal: 'terminal-view', settings: 'settings-view' };
   for (const [name, id] of Object.entries(ids)) {
     const section = document.getElementById(id);
     if (section) section.hidden = name !== view;
@@ -761,7 +786,7 @@ function showView(view) {
       button.setAttribute('aria-pressed', String(active));
     }
   }
-  const titles = { chat: 'Dialog Triady', work: 'Work', terminal: 'Terminal', settings: 'Status systemu' };
+  const titles = { chat: 'Dialog Triady', work: 'Work', codex: 'Centrum Programowania Codex', terminal: 'Terminal', settings: 'Status systemu' };
   setText('page-title', titles[view] ?? titles.chat);
 }
 
@@ -811,6 +836,7 @@ function bindNavigation() {
     button.addEventListener('click', () => {
       showView(button.dataset.view);
       if (button.dataset.view === 'work') void refreshWork();
+      if (button.dataset.view === 'codex') void loadCodexStatus();
       setMobileSidebar(false);
     });
   });
@@ -1163,6 +1189,7 @@ if (typeof document !== 'undefined') {
   bindWorkCreateForm();
   renderHistory();
   document.getElementById('refresh-status')?.addEventListener('click', refreshDashboard);
+  document.getElementById('codex-refresh')?.addEventListener('click', loadCodexStatus);
   document.getElementById('refresh-tasks')?.addEventListener('click', refreshWork);
   void refreshDashboard();
   let savedSession = '';
