@@ -59,7 +59,8 @@ for path in [root / "system/server.py", root / "system/work_store.py",
              root / "system/alex_bridge.py", root / "system/alex_handoff.py",
              root / "ui/dev_server.py", root / "system/mcp_server.py",
              root / "system/mcp_http_gateway.py",
-             root / "system/mcp_preflight.py"]:
+             root / "system/mcp_preflight.py",
+             root / "system/private_token_file.py"]:
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 print("PASS: Python runtime, launch ports and application modules are valid.")
 PY
@@ -72,12 +73,12 @@ mkdir -p "$STATE_DIR" "$WORKSPACE_DIR"
 chmod 700 "$STATE_DIR" "$WORKSPACE_DIR"
 TOKEN_FILE="$STATE_DIR/operator-token"
 if [[ -z "${DEBIAN13_API_TOKEN:-}" ]]; then
-  if [[ ! -s "$TOKEN_FILE" ]]; then
-    python3 -c 'import secrets;print(secrets.token_urlsafe(48))' > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
+  # Never trust an existing symlink, hard link or group/world-readable secret.
+  if ! DEBIAN13_API_TOKEN="$(python3 "$ROOT/system/private_token_file.py" "$TOKEN_FILE")"; then
+    echo "ERROR: refused unsafe private API token file." >&2
+    exit 1
   fi
   export DEBIAN13_API_TOKEN
-  DEBIAN13_API_TOKEN="$(cat "$TOKEN_FILE")"
 fi
 if (( ${#DEBIAN13_API_TOKEN} < 32 )); then
   echo "ERROR: DEBIAN13_API_TOKEN must be at least 32 characters." >&2
@@ -103,12 +104,11 @@ except (ValueError, AssertionError):
 PY
   MCP_TOKEN_FILE="$STATE_DIR/mcp-gateway-token"
   if [[ -z "${DEBIAN13_MCP_GATEWAY_TOKEN:-}" ]]; then
-    if [[ ! -s "$MCP_TOKEN_FILE" ]]; then
-      python3 -c 'import secrets;print(secrets.token_urlsafe(48))' > "$MCP_TOKEN_FILE"
-      chmod 600 "$MCP_TOKEN_FILE"
+    if ! DEBIAN13_MCP_GATEWAY_TOKEN="$(python3 "$ROOT/system/private_token_file.py" "$MCP_TOKEN_FILE")"; then
+      echo "ERROR: refused unsafe private MCP token file." >&2
+      exit 1
     fi
     export DEBIAN13_MCP_GATEWAY_TOKEN
-    DEBIAN13_MCP_GATEWAY_TOKEN="$(cat "$MCP_TOKEN_FILE")"
   fi
   if [[ "${#DEBIAN13_MCP_GATEWAY_TOKEN}" -lt 32 ||
         "$DEBIAN13_MCP_GATEWAY_TOKEN" == "$DEBIAN13_API_TOKEN" ]]; then
