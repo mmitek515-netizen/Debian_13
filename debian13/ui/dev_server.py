@@ -26,6 +26,8 @@ API_PATHS = {
     ("GET", "/api/v1/tasks"),
     ("POST", "/api/v1/tasks"),
     ("GET", "/api/v1/events"),
+    ("GET", "/api/v1/agent-dialog/messages"),
+    ("POST", "/api/v1/agent-dialog/messages"),
     ("POST", "/api/v1/chat"),
     ("POST", "/api/v1/chat/stream"),
     ("POST", "/api/v1/vision"),
@@ -83,6 +85,12 @@ class UiHandler(SimpleHTTPRequestHandler):
 
     def _proxy_api(self) -> None:
         path = urlsplit(self.path).path
+        # Allow only the cursor query parameter on the private chat read endpoint.
+        query = urlsplit(self.path).query
+        if query and (path != "/api/v1/agent-dialog/messages" or self.command != "GET"
+                      or not re.fullmatch(r"after=[0-9]{1,19}", query)):
+            self._send_error_json(400, "Nieprawidłowy parametr zapytania.")
+            return
         if (self.command, path) not in API_PATHS and not (
             self.command == "GET" and (API_SESSION_PATH.fullmatch(path) or API_TASK_PATH.fullmatch(path)
                                               or API_ORIGINAL_STATUS_PATH.fullmatch(path))
@@ -146,6 +154,8 @@ class UiHandler(SimpleHTTPRequestHandler):
                 headers["Content-Type"] = "application/json"
             upstream_path = {"/api/v1/integrations": "/v1/integrations",
                              "/api/v1/vision": "/v1/vision"}.get(path, path)
+            if path == "/api/v1/agent-dialog/messages" and query:
+                upstream_path += "?" + query
             connection.request(self.command, upstream_path, body=body, headers=headers)
             response = connection.getresponse()
             if (
