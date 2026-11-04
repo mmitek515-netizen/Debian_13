@@ -32,6 +32,10 @@ import mcp_server
 from codex_status import report as codex_status_report
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
+from original_agent_handoff import (
+    OriginalAgentError, capabilities as original_review_capabilities,
+    submit as submit_original_review, status as original_review_status,
+)
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_VISION_BODY_BYTES = 3 * 1024 * 1024
@@ -50,6 +54,8 @@ TASK_DETAIL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")$")
 TASK_CANCEL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/cancel$")
 SESSION_MESSAGES_PATH = re.compile(r"^/api/v1/sessions/(" + TASK_UUID + r")/messages$")
 TASK_DISPATCH_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/dispatch$")
+TASK_ORIGINAL_HANDOFF_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/handoff$")
+TASK_ORIGINAL_STATUS_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/original-status$")
 TASK_APPROVE_ANALYSIS_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/approve-analysis$")
 WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
 
@@ -668,6 +674,33 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, {"events": self.server.work_store.list_events(),
                                   "storage": "sqlite"})
             return
+        if self.path == "/api/v1/original-agents/review-capabilities":
+            try:
+                status = original_review_capabilities()
+            except OriginalAgentError:
+                status = {"configured": True, "supported": False,
+                          "agentRuntimeVerified": False, "reason": "source_unavailable"}
+            self._send_json(200, {"originalAgents": status})
+            return
+        original_status_match = TASK_ORIGINAL_STATUS_PATH.fullmatch(self.path)
+        if original_status_match:
+            task = self.server.work_store.get_task(original_status_match.group(1))
+            if not task:
+                raise ApiError(404, "task_not_found", "Task not found.")
+            submission = self.server.work_store.get_original_submission(task["id"])
+            if not submission:
+                self._send_json(404, {"error": {"code": "not_submitted",
+                                                "message": "Task was not sent to original AI."}})
+                return
+            try:
+                data = original_review_status(submission["remoteTaskId"], task["agent"])
+            except OriginalAgentError:
+                self._send_json(503, {"error": {
+                    "code": "source_unavailable",
+                    "message": "Original agent status is unavailable or invalid."}})
+                return
+            self._send_json(200, {"originalJob": data})
+            return
         if self.path == "/api/v1/alex/capabilities":
             try:
                 status = alex_capabilities()
@@ -695,7 +728,8 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, {
                     "task": task,
                     "localAnalysis": self.server.work_store.result_for_task(task["id"]),
-                    "alexSubmission": self.server.work_store.get_alex_submission(task["id"])
+                    "alexSubmission": self.server.work_store.get_alex_submission(task["id"]),
+                    "originalSubmission": self.server.work_store.get_original_submission(task["id"])
                 })
             return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
@@ -725,6 +759,33 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                                       "localWorkerHeartbeatVerified":
                                         self.server.work_store.local_worker_status()["workerHeartbeatVerified"]})
                 return
+            original_handoff = TASK_ORIGINAL_HANDOFF_PATH.fullmatch(self.path)
+            if original_handoff:
+                if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
+                    self.close_connection = True
+                    raise ApiError(400, "unexpected_body",
+                                   "Original agent handoff takes no request body.")
+                task_id = original_handoff.group(1)
+                with self.server._alex_dispatch_lock:
+                    existing = self.server.work_store.get_original_submission(task_id)
+                    if existing:
+                        self._send_json(200, {"originalSubmission": existing,
+                                              "executionStarted": False})
+                        return
+                    task = self.server.work_store.get_task(task_id)
+                    if task is None:
+                        raise ApiError(404, "task_not_found", "Task not found.")
+                    if self.server.work_store.get_alex_submission(task_id):
+                        raise ApiError(409, "already_handed_off",
+                                       "Task already sent through legacy Alex API.")
+                    receipt = submit_original_review(task)
+                    submission = self.server.work_store.record_original_submission(
+                        task_id, receipt["remoteTaskId"])
+                self._send_json(202, {"originalSubmission": submission,
+                                      "executionStarted": False,
+                                      "agentExecutionVerified": False,
+                                      "pullRequestVerified": False})
+                return
             dispatch = TASK_DISPATCH_PATH.fullmatch(self.path)
             if dispatch:
                 if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
@@ -753,9 +814,10 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     self.close_connection = True
                     raise ApiError(400, "unexpected_body", "Task cancellation takes no request body.")
                 with self.server._alex_dispatch_lock:
-                    if self.server.work_store.get_alex_submission(cancel.group(1)):
+                    if (self.server.work_store.get_alex_submission(cancel.group(1))
+                            or self.server.work_store.get_original_submission(cancel.group(1))):
                         raise ApiError(409, "already_handed_off",
-                                       "Task accepted by Alex API; local cancellation cannot recall it.")
+                                       "Task accepted by a remote AI API; local cancellation cannot recall it.")
                     task = self.server.work_store.cancel_task(cancel.group(1))
                 if task is None:
                     raise ApiError(404, "task_not_found", "Task not found.")
@@ -851,6 +913,11 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(404, {"error": {"code": "not_found", "requestId": request_id}})
         except ApiError as exc:
             self._send_json(exc.status, {"error": {"code": exc.code, "message": str(exc), "requestId": request_id}})
+        except OriginalAgentError as exc:
+            code = 409 if exc.code in ("invalid_task", "unsupported_protocol",
+                                      "unverified_receipt") else 503
+            self._send_json(code, {"error": {"code": exc.code, "message": str(exc),
+                                              "requestId": request_id}})
         except AlexHandoffError as exc:
             code = 409 if exc.code in ("invalid_task", "task_already_executed",
                                        "dispatch_not_enabled", "unsupported_capability",
