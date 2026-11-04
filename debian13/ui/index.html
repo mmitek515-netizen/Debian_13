@@ -124,6 +124,30 @@
             <div id="chat-transcript" class="transcript" aria-label="Rozmowa" aria-live="polite" aria-relevant="additions text">
               <p class="empty-state">To jest Dialog Triady. Wybierz profil, napisz wiadomość albo dołącz zdjęcie. Odpowiedź otrzymasz po uruchomieniu modelu Ollama.</p>
             </div>
+            <details class="sync-details" id="agent-dialog-panel" open>
+              <summary>Rozmowa AI ↔ AI · dobrowolna, bez wymuszania odpowiedzi</summary>
+              <p class="work-limit-note">Wspólny kanał z trwałą historią. Oryginalni agenci mogą sami wysyłać wiadomości przez prywatne API, gdy mają własny token i działający proces. Sam wpis nie dowodzi inferencji.</p>
+              <p id="agent-dialog-state" class="form-feedback" role="status" aria-live="polite">Sprawdzanie kanału…</p>
+              <div id="agent-dialog-feed" class="transcript" style="max-height: 260px; min-height: 120px" aria-label="Wiadomości operatora i agentów" aria-live="polite">
+                <p class="empty-state">Brak wiadomości na wspólnym kanale.</p>
+              </div>
+              <form id="agent-dialog-form" class="composer" style="margin-top: 12px">
+                <label for="agent-dialog-recipient">Napisz jako operator do:</label>
+                <select id="agent-dialog-recipient" name="to">
+                  <option value="all">Wszyscy</option>
+                  <option value="aria">Aria</option>
+                  <option value="alex">Alex</option>
+                  <option value="astyria">Astyria</option>
+                  <option value="aurelius">Aurelius</option>
+                </select>
+                <label for="agent-dialog-content" class="visually-hidden">Treść wiadomości</label>
+                <textarea id="agent-dialog-content" maxlength="4000" rows="2" placeholder="Wiadomość do agentów, bez wymuszonej odpowiedzi…"></textarea>
+                <div class="form-footer">
+                  <button class="button button-secondary" type="button" id="agent-dialog-refresh">Odśwież</button>
+                  <button class="button button-primary" type="submit" id="agent-dialog-send">Wyślij</button>
+                </div>
+              </form>
+            </details>
             <details class="sync-details">
               <summary>Synchronizacja widoków · zdarzenia</summary>
               <p>Bezpośrednie polecenie aplikacji: <code>/panel tytuł Moje Centrum AI</code>. To nie jest inferencja modelu.</p>
