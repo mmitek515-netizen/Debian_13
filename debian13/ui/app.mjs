@@ -132,6 +132,8 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     createTask: (task) => post('tasks', task),
     getTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}`),
     getEvents: () => request('events'),
+    getAgentDialog: (after = 0) => request(`agent-dialog/messages?after=${encodeURIComponent(after)}`),
+    postAgentDialog: (to, content) => post('agent-dialog/messages', { to, content }),
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
     cancelTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     approveLocalAnalysis: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/approve-analysis`, { method: 'POST' }),
@@ -1418,6 +1420,85 @@ function bindChatForm() {
   });
 }
 
+
+function bindAgentDialog() {
+  const form = document.getElementById('agent-dialog-form');
+  const feed = document.getElementById('agent-dialog-feed');
+  const input = document.getElementById('agent-dialog-content');
+  const recipient = document.getElementById('agent-dialog-recipient');
+  const state = document.getElementById('agent-dialog-state');
+  const send = document.getElementById('agent-dialog-send');
+  if (!form || !feed || !input || !recipient || !state || !send) return;
+  let lastId = 0;
+  let busy = false;
+  let loading = false;
+
+  const nameOf = (id) => ({
+    operator: 'Ty', all: 'Wszyscy',
+    aria: 'Aria', alex: 'Alex', astyria: 'Astyria', aurelius: 'Aurelius',
+  }[id] || id);
+
+  async function refreshDialog() {
+    if (loading) return;
+    loading = true;
+    try {
+      const data = await api.getAgentDialog(lastId);
+      if (!Array.isArray(data.messages)) throw new ApiError('Nieprawidłowa lista wiadomości AI.');
+      for (const item of data.messages) {
+        if (!Number.isSafeInteger(item.id) || item.id <= lastId) continue;
+        if (typeof item.content !== 'string' || typeof item.sender !== 'string') continue;
+        if (lastId === 0 && feed.querySelector('.empty-state')) feed.replaceChildren();
+        const article = document.createElement('article');
+        article.className = 'transcript-entry transcript-' + (item.sender === 'operator' ? 'user' : 'assistant');
+        const heading = document.createElement('p');
+        heading.className = 'transcript-heading';
+        heading.textContent = `${nameOf(item.sender)} → ${nameOf(item.recipient)} · API (wiadomość, nie dowód inferencji)`;
+        const content = document.createElement('p');
+        content.className = 'transcript-text';
+        content.textContent = item.content;
+        article.append(heading, content);
+        feed.append(article);
+        lastId = item.id;
+      }
+      if (Number.isSafeInteger(data.lastId)) lastId = Math.max(lastId, data.lastId);
+      state.textContent = 'Kanał dostępny · odpowiedzi agentów są dobrowolne; brak automatycznego wywoływania modeli.';
+      feed.scrollTop = feed.scrollHeight;
+    } catch (error) {
+      state.textContent = error.message || 'Kanał AI jest niedostępny.';
+    } finally {
+      loading = false;
+    }
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    const content = input.value.trim();
+    if (!content) return;
+    busy = true;
+    send.disabled = true;
+    try {
+      const result = await api.postAgentDialog(recipient.value, content);
+      if (result.accepted !== true) throw new ApiError('API nie potwierdziło zapisu.');
+      input.value = '';
+      await refreshDialog();
+    } catch (error) {
+      state.textContent = error.message || 'Wysłanie wiadomości nie powiodło się.';
+    } finally {
+      busy = false;
+      send.disabled = false;
+    }
+  });
+  document.getElementById('agent-dialog-refresh')?.addEventListener('click', refreshDialog);
+  void refreshDialog();
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshDialog();
+  }, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void refreshDialog();
+  });
+}
+
 function bindWorkCreateForm() {
   const form = document.getElementById('work-create-form');
   if (!form) return;
@@ -1480,6 +1561,7 @@ if (typeof document !== 'undefined') {
   renderAgentProfiles(document.getElementById('agent-list'));
   bindNavigation();
   bindChatForm();
+  bindAgentDialog();
   bindTerminalForm();
   bindWorkCreateForm();
   renderHistory();
