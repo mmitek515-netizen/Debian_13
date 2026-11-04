@@ -16,6 +16,8 @@ MAX_CONTEXT_MESSAGES = 24
 MAX_HISTORY_MESSAGES = 300
 MAX_NOTES = 40
 MAX_NOTE_LENGTH = 600
+MAX_DIALOG_MESSAGES = 2000
+DIALOG_AGENTS = frozenset({"operator", "aria", "alex", "astyria", "aurelius"})
 
 
 class ChatMemory:
@@ -32,6 +34,11 @@ class ChatMemory:
                 agent TEXT NOT NULL, role TEXT NOT NULL,
                 content TEXT NOT NULL, source TEXT NOT NULL, created_at REAL NOT NULL)""")
             db.execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
+            db.execute("""CREATE TABLE IF NOT EXISTS agent_dialog (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT NOT NULL, recipient TEXT NOT NULL,
+                content TEXT NOT NULL, created_at REAL NOT NULL)""")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_agent_dialog_recipient ON agent_dialog(recipient, id)")
             db.execute("""CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content TEXT NOT NULL UNIQUE, created_at REAL NOT NULL)""")
@@ -89,6 +96,51 @@ class ChatMemory:
             rows = db.execute("""SELECT agent, role, content, source, created_at
                 FROM messages WHERE session_id=? ORDER BY id""", (session_id,)).fetchall()
             return [dict(row) for row in rows]
+
+    def post_agent_dialog(self, sender: str, recipient: str, content: str) -> dict:
+        """Persist a voluntary message. Caller must authenticate the sender.
+
+        This method never invokes an AI model or automatically generates replies.
+        """
+        valid_recipients = DIALOG_AGENTS | {"all"}
+        if sender not in DIALOG_AGENTS or recipient not in valid_recipients:
+            raise ValueError("Unknown dialog participant.")
+        if not isinstance(content, str) or not 1 <= len(content.strip()) <= 4000:
+            raise ValueError("Message must have 1-4000 characters.")
+        clean = content.strip()
+        if any(ord(char) == 0 for char in clean):
+            raise ValueError("NUL characters are not accepted.")
+        now = time.time()
+        with self._connection() as db:
+            cur = db.execute(
+                "INSERT INTO agent_dialog(sender,recipient,content,created_at) VALUES (?,?,?,?)",
+                (sender, recipient, clean, now))
+            # Bound local storage without deleting recently visible messages.
+            db.execute(
+                "DELETE FROM agent_dialog WHERE id <= (SELECT COALESCE(MAX(id),0) - ? FROM agent_dialog)",
+                (MAX_DIALOG_MESSAGES,))
+            return {"id": cur.lastrowid, "sender": sender, "recipient": recipient,
+                    "content": clean, "created_at": now, "source": "authenticated_api"}
+
+    def get_agent_dialog(self, audience: str, after: int = 0, limit: int = 100) -> list[dict]:
+        """Only show an agent broadcasts, its own messages and messages to it.
+
+        The operator can audit all conversations. This is message transport,
+        NOT a runtime-inference or model-execution verification endpoint.
+        """
+        if audience not in DIALOG_AGENTS or not 0 <= after < 2**63 or not 1 <= limit <= 100:
+            raise ValueError("Invalid dialog query.")
+        with self._connection() as db:
+            if audience == "operator":
+                rows = db.execute(
+                    "SELECT id,sender,recipient,content,created_at FROM agent_dialog "
+                    "WHERE id>? ORDER BY id ASC LIMIT ?", (after, limit)).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT id,sender,recipient,content,created_at FROM agent_dialog "
+                    "WHERE id>? AND (recipient='all' OR recipient=? OR sender=?) "
+                    "ORDER BY id ASC LIMIT ?", (after, audience, audience, limit)).fetchall()
+        return [{**dict(row), "source": "authenticated_api"} for row in rows]
 
     def sessions(self) -> list[dict]:
         with self._connection() as db:
