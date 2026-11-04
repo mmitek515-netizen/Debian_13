@@ -49,6 +49,35 @@ To select a different local port, set
 The gateway's port must differ from the GUI and API ports. This option
 does not configure a TLS reverse proxy, OAuth or ChatGPT remote access.
 
+### Verify actual local MCP and backend (no model or paid API)
+
+With `DEBIAN13_ENABLE_MCP_HTTP=1` and the console running, in another
+terminal run:
+
+```sh
+python3 debian13/system/mcp_preflight.py
+```
+
+The self-test reads the private MCP gateway token from the state directory,
+then runs real authenticated `initialize`, `tools/list` and read-only
+`tools/call` against the existing API. It outputs JSON suitable for
+diagnostics, with truthful flags such as:
+
+- `localMcpStatus: verified`: **this machine only**;
+- `originalAgentExecutionVerified`: taken from the original agent registry
+  report, not from the presence of an agent profile;
+- `workersReportedByBackend`: a counter reported by Work; not proof of
+  execution;
+- `chatgptExternalConnection: not_tested`: connecting ChatGPT requires
+  separate account permissions, tunnel credentials and an external test;
+- `publicMcpEndpoint: not_deployed_by_this_check`: this test never publishes
+  a port or configures an external account.
+
+When the gateway is off, its token is wrong, the backend is unavailable, or
+new unknown/mutating tools appear, the test fails with `BLOCKED`, exits
+nonzero and does not disclose credentials or private task descriptions.
+The check makes **no LLM inference calls and consumes no API credits**.
+
 ### Manual option: two terminals
 
 Start the existing app in terminal A:
