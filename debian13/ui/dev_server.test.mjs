@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { readWorkspaceSources } from './global_sync.mjs';
+import { readWorkspaceSources, readWithTimeout } from './global_sync.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 const TEST_SESSION_ID = '123e4567-e89b-42d3-a456-426614174000';
@@ -378,6 +378,25 @@ test('global sync finishes when a read-only source never responds', async () => 
   assert.equal(result.readOnly, true);
   assert.equal(result.deployedCode, false);
   assert.equal(result.aiExecutionVerified, false);
+});
+
+test('bounded dashboard refresh settles even when one view stalls', async () => {
+  const calls = [];
+  const results = await Promise.allSettled([
+    () => { calls.push('status'); return Promise.resolve('ok'); },
+    () => { calls.push('stalled'); return new Promise(() => {}); },
+    () => { calls.push('work'); return Promise.resolve({ tasks: [] }); },
+  ].map(operation => readWithTimeout(operation, 30)));
+  assert.deepEqual(calls.sort(), ['stalled', 'status', 'work']);
+  assert.equal(results.length, 3);
+  assert.equal(results[0].status, 'fulfilled');
+  assert.equal(results[0].value, 'ok');
+  assert.equal(results[1].status, 'rejected');
+  assert.equal(results[1].reason.message, 'Source read timed out');
+  assert.equal(results[2].status, 'fulfilled');
+  assert.deepEqual(results[2].value, {tasks: []});
+  await assert.rejects(readWithTimeout(() => Promise.reject(new Error('unavailable')), 30),
+    /unavailable/);
 });
 
 test('global sync reports partial API failure without leaking upstream secrets', async () => {
