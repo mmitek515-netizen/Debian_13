@@ -36,7 +36,7 @@ jobs:
        (github.event_name == 'issues' &&
         github.event.label.name == 'ai:run' &&
         github.event.issue.user.login == 'mmitek515-netizen'))
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.DEBIAN13_AGENT_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 12
     permissions:
       contents: read
@@ -97,6 +97,7 @@ jobs:
           DEBIAN13_MODEL_CHAT_URL: ${{ secrets.DEBIAN13_MODEL_CHAT_URL }}
           DEBIAN13_MODEL_API_KEY: ${{ secrets.DEBIAN13_MODEL_API_KEY }}
           DEBIAN13_MODEL_NAME: ${{ vars.DEBIAN13_MODEL_NAME }}
+          DEBIAN13_TRUSTED_LOCAL_MODEL: ${{ vars.DEBIAN13_TRUSTED_LOCAL_MODEL || '0' }}
         run: |
           set -euo pipefail
           python3 debian13/automation/github_agent_proposal.py propose agent-proposal.json
