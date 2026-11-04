@@ -30,6 +30,7 @@ from ui_sync import SyncStore, SyncValidationError, parse_title_command
 from chat_memory import ChatMemory
 import mcp_server
 from codex_status import report as codex_status_report
+from integration_progress import report as integration_progress_report
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 from original_agent_handoff import (
@@ -689,6 +690,14 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/api/v1/codex/status":
             self._send_json(200, codex_status_report())
+            return
+        if self.path == "/api/v1/integration-progress":
+            self._send_json(200, integration_progress_report(
+                codex=codex_status_report(),
+                ollama=self.server.work_store.local_worker_status(),
+                original_agents=original_agents_report(),
+                model_chat_url=self.server.config.get("model_chat_url", ""),
+            ))
             return
         if self.path == "/api/v1/sync/state":
             self._send_json(200, self.server.ui_sync.snapshot())
