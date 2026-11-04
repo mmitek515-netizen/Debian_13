@@ -103,8 +103,8 @@
           <section id="chat-view" class="workspace-view chat-view" aria-label="Czat">
             <div id="chat-transcript" class="transcript" aria-label="Rozmowa" aria-live="polite" aria-relevant="additions text">
               <p class="empty-state">
-                Wybierz profil i wyślij wiadomość. <code>/help</code> działa lokalnie;
-                pozostałe wiadomości wymagają dostępnego modelu.
+                Wybierz profil i wyślij wiadomość. <code>/svl status</code> i <code>/svl diagnostyka</code> wywołują procesor Python bez modelu AI;
+                zwykła rozmowa wymaga dostępnej Ollamy lub innego modelu.
               </p>
             </div>
             <form id="chat-form" class="composer">
@@ -212,9 +212,9 @@
                 <p class="eyebrow">POLECENIA OGRANICZONEGO API</p>
                 <h2 id="terminal-title">Terminal</h2>
               </div>
-              <span class="local-badge">pwd · ls · cat</span>
+              <span class="local-badge">CLI · SVL</span>
             </div>
-            <p class="work-limit-note">To nie jest powłoka systemowa. Polecenia są walidowane i obsługiwane przez API.</p>
+            <p class="work-limit-note">To nie jest powłoka systemowa. Polecenia są walidowane przez API. Wpisz <code>svl</code>, <code>svl status</code>, <code>svl diagnostyka</code> lub <code>svl agenci</code>, aby użyć procesora Python SVL (tylko odczyt).</p>
             <div id="terminal-output" class="terminal-output" aria-label="Wynik terminala" aria-live="polite">
               <p class="terminal-hint">Dozwolone są wyłącznie pwd, ls oraz cat &lt;plik&gt; w katalogu roboczym.</p>
             </div>
@@ -227,12 +227,12 @@
                 maxlength="500"
                 autocomplete="off"
                 spellcheck="false"
-                placeholder="np. pwd"
+                placeholder="np. pwd albo svl status"
                 required
               />
               <div class="form-footer">
                 <p id="terminal-feedback" class="form-feedback" aria-live="polite">
-                  Obsługiwane są tylko pwd, ls i cat &lt;plik&gt; w katalogu roboczym.
+                  Dostępne są ograniczone polecenia terminala i tryb <code>svl</code> (odczyt, bez uruchamiania agentów).
                 </p>
                 <button id="terminal-submit" type="submit" class="button button-secondary">Uruchom</button>
               </div>

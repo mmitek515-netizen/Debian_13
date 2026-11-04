@@ -15,6 +15,8 @@ RUN apt-get update \
     && install -d -o debian13 -g debian13 -m 0750 /workspace
 
 COPY --chown=root:root server.py /opt/debian13/system/server.py
+COPY --chown=root:root svl_kernel.py /opt/debian13/system/svl_kernel.py
+COPY --chown=root:root svl_command_bridge.py /opt/debian13/system/svl_command_bridge.py
 COPY --chown=root:root work_store.py /opt/debian13/system/work_store.py
 COPY --chown=root:root readiness.py /opt/debian13/system/readiness.py
 COPY --chown=root:root mcp_server.py /opt/debian13/system/mcp_server.py
@@ -23,7 +25,7 @@ COPY --chown=root:root alex_handoff.py /opt/debian13/system/alex_handoff.py
 COPY --chown=root:root original_agents.py /opt/debian13/system/original_agents.py
 COPY --chown=root:root integration_smoke.py /opt/debian13/system/integration_smoke.py
 COPY --chown=root:root gpt-actions.openapi.json /opt/debian13/system/gpt-actions.openapi.json
-RUN chmod 0644 /opt/debian13/system/server.py /opt/debian13/system/work_store.py /opt/debian13/system/readiness.py /opt/debian13/system/mcp_server.py /opt/debian13/system/alex_bridge.py /opt/debian13/system/alex_handoff.py /opt/debian13/system/original_agents.py /opt/debian13/system/gpt-actions.openapi.json /opt/debian13/system/integration_smoke.py
+RUN chmod 0644 /opt/debian13/system/svl_kernel.py /opt/debian13/system/svl_command_bridge.py /opt/debian13/system/server.py /opt/debian13/system/work_store.py /opt/debian13/system/readiness.py /opt/debian13/system/mcp_server.py /opt/debian13/system/alex_bridge.py /opt/debian13/system/alex_handoff.py /opt/debian13/system/original_agents.py /opt/debian13/system/gpt-actions.openapi.json /opt/debian13/system/integration_smoke.py
 
 USER 10001:10001
 EXPOSE 8080

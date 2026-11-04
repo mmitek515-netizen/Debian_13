@@ -262,3 +262,42 @@ test('original Alex capability and explicit operator handoff stay behind tokeniz
   assert.equal(blocked.status, 400);
   assert.equal(upstream.requests.length, 2, 'invalid dispatch must not reach API');
 });
+
+test('SVL commands are proxied only on the authenticated, allowlisted route', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'svl-proxy-test-token');
+  const result = await fetch(`${base}/api/v1/svl/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer browser-ignored' },
+    body: JSON.stringify({ command: 'metryka -inf inf' }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).path, '/api/v1/svl/command');
+  assert.equal(upstream.requests[0].authorization, 'Bearer svl-proxy-test-token');
+  assert.deepEqual(JSON.parse(upstream.requests[0].body), { command: 'metryka -inf inf' });
+  const disallowed = await fetch(`${base}/api/v1/svl/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'status' }),
+  });
+  assert.equal(disallowed.status, 404);
+  assert.equal(upstream.requests.length, 1);
+});
+
+test('SVL API client uses the named command endpoint without an external model', async () => {
+  const { createApiClient } = await import('./app.mjs');
+  const requests = [];
+  const api = createApiClient({ fetchImpl: async (url, options) => {
+    requests.push({ url, method: options.method, headers: options.headers, body: options.body });
+    return new Response(JSON.stringify({
+      processor: 'SVL', execution: 'read_only',
+      result: { metricC: 2.5 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } });
+  const response = await api.svl('metryka -inf inf');
+  assert.equal(response.result.metricC, 2.5);
+  assert.equal(requests[0].url, '/api/v1/svl/command');
+  assert.equal(requests[0].method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].body), { command: 'metryka -inf inf' });
+  assert.equal(requests[0].headers['Content-Type'], 'application/json');
+});
