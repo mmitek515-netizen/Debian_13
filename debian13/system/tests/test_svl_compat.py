@@ -139,5 +139,66 @@ class SVLCompatibilityTests(unittest.TestCase):
             worker.join(timeout=3)
 
 
+    def test_local_terminal_uses_svl_engine_without_ai_or_shell(self):
+        state_path = self.workspace / ".svl_kernel_store.json"
+        private_value = "confidential-operator-notes-must-not-be-printed"
+        state_path.write_text(json.dumps({
+            "config": {
+                "sys_version": "5.6.0-QuantumWheel",
+                "mode": "Local-Deterministic",
+                "active_profiles": ["Alex", "Astyria"],
+                "api_token": private_value,
+            },
+            "chat_history": [{"content": private_value}],
+            "update_history": [{"description": private_value}],
+        }), encoding="utf-8")
+        before = state_path.read_bytes()
+        api = Debian13Server(("127.0.0.1", 0), {
+            "api_token": TOKEN, "model_chat_url": "", "model_api_key": "",
+            "model_name": "", "workspace": str(self.workspace),
+        })
+        worker = threading.Thread(target=api.serve_forever, daemon=True)
+        worker.start()
+        try:
+            for command in ("svl status", "svl report", "svl profiles"):
+                for endpoint in ("/v1/terminal", "/api/v1/terminal"):
+                    with self.subTest(command=command, endpoint=endpoint):
+                        conn = http.client.HTTPConnection(*api.server_address, timeout=5)
+                        try:
+                            conn.request("POST", endpoint, body=json.dumps({"command": command}),
+                                         headers={"Authorization": "Bearer " + TOKEN,
+                                                  "Content-Type": "application/json"})
+                            response = conn.getresponse()
+                            result = json.loads(response.read())
+                            self.assertEqual(response.status, 200)
+                            self.assertEqual(result["exitCode"], 0)
+                            output = result.get("stdout", result.get("output", ""))
+                            self.assertIn("SVL", output) if command != "svl profiles" else self.assertIn("Alex", output)
+                            self.assertNotIn(private_value, json.dumps(result))
+                            self.assertNotIn(TOKEN, json.dumps(result))
+                        finally:
+                            conn.close()
+            for command in ("svl", "svl bump", "svl report ; rm -rf .",
+                            "svl status && whoami", "svl ../etc/passwd"):
+                with self.subTest(blocked=command):
+                    conn = http.client.HTTPConnection(*api.server_address, timeout=5)
+                    try:
+                        conn.request("POST", "/v1/terminal",
+                                     body=json.dumps({"command": command}),
+                                     headers={"Authorization": "Bearer " + TOKEN,
+                                              "Content-Type": "application/json"})
+                        response = conn.getresponse()
+                        result = json.loads(response.read())
+                        self.assertEqual(response.status, 400)
+                        self.assertEqual(result["error"]["code"], "invalid_svl_command")
+                    finally:
+                        conn.close()
+            self.assertEqual(state_path.read_bytes(), before)
+        finally:
+            api.shutdown()
+            api.server_close()
+            worker.join(timeout=3)
+
+
 if __name__ == "__main__":
     unittest.main()
