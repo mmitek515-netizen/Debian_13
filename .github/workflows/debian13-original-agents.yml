@@ -1,0 +1,206 @@
+name: Debian 13 — AI Issues and draft PRs
+# Runs only on an explicit owner request. Existing response engine is unchanged.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'patch = implement an Issue; issue = propose one new Issue'
+        type: choice
+        required: true
+        options: [patch, issue]
+      issue_number:
+        description: 'Issue number for patch mode (ignored in issue mode)'
+        required: false
+        type: string
+      agent:
+        description: 'Agent profile using the configured existing model endpoint'
+        required: true
+        type: choice
+        options: [alex, aria, astyria, aurelius]
+      goal:
+        description: 'Concrete goal for new Issue (issue mode only)'
+        required: false
+        type: string
+  issues:
+    types: [labeled]
+permissions: {}
+concurrency:
+  group: debian13-ai-issue-${{ github.event.issue.number || inputs.issue_number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: >-
+      github.repository == 'mmitek515-netizen/Debian_13' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'issues' &&
+        github.event.label.name == 'ai:run' &&
+        github.event.issue.user.login == 'mmitek515-netizen'))
+    runs-on: ${{ vars.DEBIAN13_AGENT_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      kind: ${{ steps.prepare.outputs.kind }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Resolve selected agent and real Issue
+        id: prepare
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AGENT_MODE: ${{ inputs.mode || 'patch' }}
+          AGENT_INPUT: ${{ inputs.agent }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          set -euo pipefail
+          case "$AGENT_MODE" in patch|issue) ;; *) exit 2;; esac
+          if [[ "$AGENT_MODE" == "patch" ]]; then
+            [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "::error::Invalid Issue number"; exit 2; }
+            gh issue view "$ISSUE_NUMBER" --repo "$GH_REPO" --json title,body,labels > issue.json
+            if [[ -n "$AGENT_INPUT" ]]; then
+              agent="$AGENT_INPUT"
+            else
+              agent="$(python3 - <<'PY'
+          import json, re
+          issue=json.load(open('issue.json'))
+          labels={item['name'].lower() for item in issue.get('labels', [])}
+          known=('alex','aria','astyria','aurelius')
+          matching=[name for name in known if 'agent:'+name in labels]
+          if len(matching)==1:
+              print(matching[0])
+          else:
+              m=re.match(r'^\[(alex|aria|astyria|aurelius)\]', issue['title'].lower())
+              if not m: raise SystemExit('Add one agent:* label or prefix the title [Alex]/[Aria]/[Astyria]/[Aurelius].')
+              print(m.group(1))
+          PY
+              )"
+            fi
+          else
+            agent="$AGENT_INPUT"
+          fi
+          case "$agent" in alex|aria|astyria|aurelius) ;; *) echo "::error::Choose an original agent profile"; exit 2;; esac
+          echo "AGENT_NAME=$agent" >> "$GITHUB_ENV"
+          echo "kind=$AGENT_MODE" >> "$GITHUB_OUTPUT"
+      - name: Ask existing configured model for a concrete change
+        shell: bash
+        env:
+          AGENT_MODE: ${{ inputs.mode || 'patch' }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+          ISSUE_JSON: issue.json
+          AGENT_GOAL: ${{ inputs.goal }}
+          DEBIAN13_MODEL_CHAT_URL: ${{ secrets.DEBIAN13_MODEL_CHAT_URL }}
+          DEBIAN13_MODEL_API_KEY: ${{ secrets.DEBIAN13_MODEL_API_KEY }}
+          DEBIAN13_MODEL_NAME: ${{ vars.DEBIAN13_MODEL_NAME }}
+          DEBIAN13_TRUSTED_LOCAL_MODEL: ${{ vars.DEBIAN13_TRUSTED_LOCAL_MODEL || '0' }}
+        run: |
+          set -euo pipefail
+          python3 debian13/automation/github_agent_proposal.py propose agent-proposal.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian13-ai-proposal
+          path: agent-proposal.json
+          retention-days: 2
+          if-no-files-found: error
+
+  verify:
+    needs: propose
+    if: needs.propose.outputs.kind == 'patch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: debian13-ai-proposal
+      - name: Apply proposal without write credentials
+        run: |
+          set -euo pipefail
+          python3 debian13/automation/github_agent_proposal.py apply agent-proposal.json
+          git diff --check
+      - name: Run Debian 13 Python and Node tests without write token
+        env:
+          GITHUB_TOKEN: ''
+          GH_TOKEN: ''
+        run: |
+          set -euo pipefail
+          timeout 240 python3 -m unittest discover -s debian13/system/tests -p 'test_*.py'
+          timeout 120 node --test debian13/ui/dev_server.test.mjs
+          bash debian13/start-local.sh --check
+
+  publish:
+    needs: [propose, verify]
+    if: >-
+      always() &&
+      needs.propose.result == 'success' &&
+      (needs.verify.result == 'success' || needs.verify.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: debian13-ai-proposal
+      - name: Publish a reviewable Issue or a draft PR (never auto-merge)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          readarray -t info < <(python3 - <<'PY'
+          import json
+          x=json.load(open('agent-proposal.json'))
+          print(x['kind']);print(x['agent']);print(x.get('issue_number', 0))
+          PY
+          )
+          kind="${info[0]}"; agent="${info[1]}"; number="${info[2]}"
+          case "$agent" in alex|aria|astyria|aurelius) ;; *) exit 2;; esac
+          if [[ "$kind" == issue ]]; then
+            title="$(python3 -c 'import json;print(json.load(open("agent-proposal.json"))["title"])')"
+            python3 -c 'import json;print(json.load(open("agent-proposal.json"))["body"])' > agent-issue.md
+            gh issue create --repo "$GH_REPO" --title "[AI proposal][$agent] $title" --body-file agent-issue.md
+            echo "Review the issue before assigning implementation." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          [[ "$kind" == patch && "$number" =~ ^[1-9][0-9]{0,8}$ ]] || exit 2
+          branch="agent/$agent-issue-$number-$RUN_ID"
+          git switch -c "$branch"
+          python3 debian13/automation/github_agent_proposal.py apply agent-proposal.json
+          git add -A -- debian13
+          git diff --cached --check
+          git diff --cached --quiet && { echo "::error::No real source changes"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(debian13): agent $agent proposal for issue #$number"
+          git push origin "HEAD:refs/heads/$branch"
+          cat > agent-pr.md <<EOF
+          Implements a proposed change for #$number using the selected **$agent** profile and the separately configured model endpoint.
+
+          - Model returned a real, bounded source-file change
+          - Validation ran without repository write credentials
+          - Draft PR; requires human review and **does not auto-merge**
+          - Profile attribution is **not** proof that an independent original AI Studio agent process ran
+          - No OpenAI-specific API or Copilot Cloud Agent is required by this workflow
+          EOF
+          gh pr create --repo "$GH_REPO" --draft --base main --head "$branch" \
+            --title "AI proposal [$agent]: implement #$number" --body-file agent-pr.md
+          echo "Draft PR submitted for review; not merged." >> "$GITHUB_STEP_SUMMARY"
