@@ -172,6 +172,9 @@ class WorkStore:
             ).fetchone()
             if row is None or row["status"] != "queued" or row["agent"] != "alex":
                 raise ValueError("Task no longer eligible for Alex dispatch.")
+            if db.execute("SELECT 1 FROM original_agent_submissions WHERE task_id=?",
+                          (task_id,)).fetchone():
+                raise ValueError("Task already sent to original agent review queue.")
             stamp = _now()
             db.execute(
                 "INSERT OR IGNORE INTO alex_submissions(task_id,remote_task_id,submitted_at) "
@@ -234,6 +237,8 @@ class WorkStore:
                 raise ValueError("This task is not eligible for local analysis.")
             if db.execute("SELECT 1 FROM alex_submissions WHERE task_id=?", (task_id,)).fetchone():
                 raise ValueError("This task was already submitted to the remote Alex API.")
+            if db.execute("SELECT 1 FROM original_agent_submissions WHERE task_id=?", (task_id,)).fetchone():
+                raise ValueError("This task was already sent to an original AI Studio agent.")
             stamp = _now()
             db.execute(
                 "UPDATE tasks SET execution='approved_local_analysis', "
