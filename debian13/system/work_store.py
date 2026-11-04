@@ -90,7 +90,10 @@ class WorkStore:
     def list_tasks(self) -> list[dict]:
         with self._open() as db:
             return [dict(row) for row in db.execute(
-                "SELECT * FROM tasks ORDER BY created_at DESC, rowid DESC LIMIT ?",
+                "SELECT tasks.*, original_agent_submissions.remote_task_id AS originalRemoteTaskId "
+                "FROM tasks LEFT JOIN original_agent_submissions "
+                "ON original_agent_submissions.task_id = tasks.id "
+                "ORDER BY tasks.created_at DESC, tasks.rowid DESC LIMIT ?",
                 (PAGE_SIZE,),
             )]
 
