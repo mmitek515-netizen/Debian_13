@@ -127,6 +127,50 @@ Run regression tests:
 python3 -m unittest discover -s debian13/system/tests -p 'test_*.py' -v
 ```
 
+## Optional service on a real Debian 13 host (systemd user manager)
+
+To keep **the API, GUI and local MCP gateway** running across process failures
+while the Debian machine and user manager are online, use a **non-root**
+systemd user service. This is not an AI worker or a subscription bypass.
+
+From the checked-out project directory, as your **regular Debian user**:
+
+```sh
+python3 debian13/install-user-service.py --check
+python3 debian13/install-user-service.py --install
+systemctl --user daemon-reload
+systemctl --user enable --now debian13-console.service
+systemctl --user status debian13-console.service
+python3 debian13/system/mcp_preflight.py
+```
+
+The installer refuses root, never invokes `systemctl` or `loginctl`
+itself, writes the user unit privately (0600), and requires explicit
+`--force` to replace an existing unit with different content.
+`--check` never writes files. The unit enables local MCP
+(`DEBIAN13_ENABLE_MCP_HTTP=1`), runs the existing launcher as the
+current user, restarts on failures and **does not expose ports or
+configure any external TLS tunnel**. Tokens are stored separately by
+the launcher, not embedded in the unit.
+
+To stop and disable it:
+
+```sh
+systemctl --user disable --now debian13-console.service
+```
+
+**24/7 limitation:** a user service normally runs only while that user's
+systemd manager is alive. Operation after logout requires an administrator
+to *separately authorize and configure* `loginctl enable-linger USER`.
+A powered-off or suspended computer, resource exhaustion, Codespaces
+suspension, and GitHub limits still stop the service. No claim of
+autonomous AI work follows merely from an active unit.
+
+The generated unit stores an absolute project path; if the project moves
+after installation, stop the service and regenerate the unit with
+`--install --force` only after reviewing the change. Keep the
+repository directory and its token files private.
+
 ## Before any ChatGPT or external access
 
 1. Confirm that the current ChatGPT plan and custom-plugin permissions
