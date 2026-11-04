@@ -220,3 +220,36 @@ separate; model output is never executed as a command.
 | `POST /v1/chat` | `{"profile":"aria","message":"..."}`; real provider response or explicit error |
 
 Error responses use `{"error":{"code":"...","message":"...","requestId":"..."}}`.
+
+## Oryginalny SVL w terminalu (bez modeli AI)
+
+W `debian13/system/legacy_svl_kernel.py` zachowano oryginalny silnik stanu
+Python z repozytorium `mmitek515-netizen/SVL_System`, źródło
+`svl_kernel.py` (blob `e2f1b867000c7bddcc80dd4d56b5cccedcb2d0e1`).
+To **aplikacyjny** magazyn konfiguracji i historii, a nie kernel Linuksa.
+
+Z poziomu terminala GUI działa bezpieczny, deterministyczny zestaw poleceń:
+```text
+svl status
+svl report
+svl profiles
+```
+Silnik Python jest podłączony przez `svl_compat.py`. Dane są odczytywane
+wyłącznie z opcjonalnego `WORKSPACE_DIR/.svl_kernel_store.json`; jego brak
+oznacza **konfigurację domyślną**, nie działającego agenta. `svl report`
+zwraca tylko wersję, tryb, liczbę wiadomości i zmian oraz informacje
+diagnostyczne, bez treści czatu, sekretów, tokenów czy poleceń z pliku.
+Migracja starszych ustawień modelu odbywa się wyłącznie w pamięci i nie
+nadpisuje pliku. Oryginalny skrypt nie jest uruchamiany przez powłokę z
+uprawnieniami użytkownika.
+
+Dostępne są też chronione tokenem `GET /api/v1/svl/status`,
+`POST /api/v1/terminal` oraz niezależne od modelu polecenie czatu
+`/svl`. Polecenia uruchamiają istniejące funkcje Pythona, **nie** dają
+dostępu do root, arbitralnego `exec`, automatycznych operacji GitHub
+ani uprawnień administratora. AI i Debian 13 ISO nie są uruchamiane przez
+ten adapter.
+
+Walidacja end-to-end uruchamia prawdziwy prywatny serwer API i GUI,
+wykonuje `svl report` przez ten sam proxy HTTP co interfejs, a także
+sprawdza odmowę nieznanych poleceń i brak wycieków danych.
