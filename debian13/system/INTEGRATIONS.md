@@ -66,11 +66,23 @@ The schema exposes only real endpoints:
 - GET `/v1/profiles`
 - GET `/v1/diagnostics`
 - GET `/v1/integrations`
+- GET `/api/v1/tasks` — persisted Work queue, including `workersRunning`;
+  **queued means recorded, not executed**
+- GET `/api/v1/original-agents` — state of the source task registry and
+  explicit `workerVerified` / `originalAgentExecutionVerified` indicators;
+  **a profile or registry entry is not proof of an autonomous agent**
 - POST `/v1/chat` (text only, requires reachable model provider)
 
-The last operation is marked consequential and may require confirmation.
+The POST operation is marked consequential and may require confirmation.
+The two new GET operations are read-only; the schema does not offer task
+dispatch, writes, root, shell or purchase actions.
 GPT Actions are **not yet connected to a specific GPT**; import, HTTPS
 deployment, account permissions and real request tests remain outstanding.
+Until an operator configures a compatible client and confirms an HTTPS test
+request, the integration MUST display `connected=false`. Never expose the
+localhost port, reverse-proxy admin endpoints or bearer tokens publicly.
+The task list contains private operator descriptions; use a dedicated
+read-only credential/proxy with access controls before any external client.
 Do not use `/v1/terminal` as a GPT Action.
 
 ## 3. Codex — manual GitHub issue-to-PR execution
