@@ -82,7 +82,17 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(encoded)
         self.close_connection = True
 
+    def _unique_headers(self, *names: str) -> bool:
+        # HTTP intermediaries may disagree about which duplicate value wins.
+        # Reject ambiguity before evaluating identity, origin or body framing.
+        if any(len(self.headers.get_all(name, [])) > 1 for name in names):
+            self._reply(400, {"error": "Ambiguous request headers"})
+            return False
+        return True
+
     def _guard(self) -> bool:
+        if not self._unique_headers("Host", "Origin", "Authorization"):
+            return False
         expected_hosts = {"127.0.0.1:" + str(self.server.server_port),
                           "localhost:" + str(self.server.server_port)}
         if self.headers.get("Host", "") not in expected_hosts:
@@ -117,6 +127,10 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
             self._reply(404, {"error": "Not found"})
             return
         if not self._guard():
+            return
+        if not self._unique_headers("Transfer-Encoding", "Content-Length",
+                                    "Content-Type", "Accept",
+                                    "MCP-Protocol-Version"):
             return
         if self.headers.get("Transfer-Encoding"):
             self._reply(400, {"error": "Chunked request bodies are unsupported"})
