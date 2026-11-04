@@ -1382,3 +1382,19 @@ body {
   .triad-chat-header { padding: 10px; }
   .triad-chat-header h2 { font-size: 1rem; }
 }
+
+/* Independent Codex coding center. Actual coding requires the Codex CLI on host. */
+.codex-view .runtime-grid dd { overflow-wrap: anywhere; }
+.codex-command-list {
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 18px;
+  background: #050e1b;
+  color: #a5ddff;
+  border: 1px solid #215177;
+  border-radius: 12px;
+  line-height: 1.8;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+}
