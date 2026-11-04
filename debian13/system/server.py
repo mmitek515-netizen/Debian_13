@@ -24,6 +24,7 @@ import uuid
 from pathlib import Path
 
 from work_store import WorkStore
+from svl_command_bridge import SVLCommandError, SVLCommandProcessor
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 
@@ -312,6 +313,19 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
     return content.strip()[:MAX_MESSAGE_CHARS], model
 
 
+
+def integration_status() -> dict:
+    """Describe implemented interfaces without claiming live connections."""
+    return {"integrations": [
+        {"id": "mcp", "name": "MCP", "status": "stdio_available",
+         "connected": False, "description": "Read-only MCP stdio bridge; client connection not verified."},
+        {"id": "gpt_actions", "name": "GPT Actions", "status": "schema_available",
+         "connected": False, "description": "OpenAPI document available; HTTPS deployment and GPT setup required."},
+        {"id": "codex", "name": "Codex", "status": "workflow_available",
+         "connected": False, "description": "GitHub Actions workflow; requires OPENAI_API_KEY and a verified run."},
+    ]}
+
+
 def runtime_diagnostics(server) -> dict:
     linux_security = {}
     try:
@@ -484,14 +498,7 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(200, runtime_diagnostics(self.server))
             return
         if self.path == "/v1/integrations":
-            self._send_json(200, {"integrations": [
-                {"id": "mcp", "name": "MCP", "status": "stdio_available",
-                 "connected": False, "description": "Read-only MCP stdio bridge; client connection not verified."},
-                {"id": "gpt_actions", "name": "GPT Actions", "status": "schema_available",
-                 "connected": False, "description": "OpenAPI document available; HTTPS deployment and GPT setup required."},
-                {"id": "codex", "name": "Codex", "status": "workflow_available",
-                 "connected": False, "description": "GitHub Actions workflow; requires OPENAI_API_KEY and a verified run."},
-            ]})
+            self._send_json(200, integration_status())
             return
         if self.path == "/api/v1/status":
             report = runtime_diagnostics(self.server)
@@ -591,6 +598,22 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, {"task": task})
                 return
             data = self._read_json(MAX_VISION_BODY_BYTES if self.path == "/v1/vision" else MAX_BODY_BYTES)
+            if self.path == "/api/v1/svl/command":
+                try:
+                    processed = SVLCommandProcessor(
+                        diagnostics=lambda: runtime_diagnostics(self.server),
+                        integrations=integration_status,
+                        agents=original_agents_report,
+                        tasks=lambda: {
+                            "tasks": self.server.work_store.list_tasks(),
+                            "storage": "sqlite",
+                            "workersRunning": 0,
+                        },
+                    ).process(data.get("command"))
+                except SVLCommandError as exc:
+                    raise ApiError(400, "svl_invalid_command", str(exc)) from exc
+                self._send_json(200, {"requestId": request_id, **processed})
+                return
             if self.path == "/api/v1/tasks":
                 if set(data) != {"agent", "kind", "title", "description"}:
                     raise ApiError(400, "invalid_task", "Required: agent, kind, title, description.")
