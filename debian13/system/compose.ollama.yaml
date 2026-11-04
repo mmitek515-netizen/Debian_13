@@ -24,12 +24,13 @@ services:
     entrypoint: ["/bin/sh", "-ec"]
     command: |
       until OLLAMA_HOST=http://ollama:11434 ollama list >/dev/null 2>&1; do sleep 3; done
-      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL:-llama3.2-vision:11b}"
-      if [ "${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}" != "${OLLAMA_MODEL:-llama3.2-vision:11b}" ]; then
+      OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_MODEL:-llama3.2:3b}"
+      if [ "${DEBIAN13_OLLAMA_PULL_VISION:-0}" = "1" ] && [ "${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}" != "${OLLAMA_MODEL:-llama3.2:3b}" ]; then
         OLLAMA_HOST=http://ollama:11434 ollama pull "${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}"
       fi
     environment:
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      DEBIAN13_OLLAMA_PULL_VISION: ${DEBIAN13_OLLAMA_PULL_VISION:-0}
       OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
     networks:
       - default
@@ -44,7 +45,11 @@ services:
     environment:
       MODEL_CHAT_URL: http://ollama:11434/v1/chat/completions
       MODEL_API_KEY: ollama-local-no-remote-secret
-      MODEL_NAME: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      VISION_FALLBACK_ENABLED: "0"
+      VISION_FALLBACK_CHAT_URL: ""
+      VISION_FALLBACK_API_KEY: ""
+      VISION_FALLBACK_MODEL: ""
+      MODEL_NAME: ${OLLAMA_MODEL:-llama3.2:3b}
       VISION_MODEL_NAME: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
       DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
       OLLAMA_VISION_URL: http://ollama:11434/v1/chat/completions
@@ -91,7 +96,7 @@ services:
     environment:
       WORKSPACE_DIR: /workspace
       OLLAMA_CHAT_URL: http://ollama:11434/v1/chat/completions
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2-vision:11b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
     volumes:
       - debian13-workspace:/workspace
     read_only: true
