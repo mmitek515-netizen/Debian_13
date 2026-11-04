@@ -352,8 +352,9 @@ function renderTasks(tasks) {
         dispatch.addEventListener('click', () => void dispatchWorkToAlex(task.id, dispatch));
         actions.append(dispatch);
       }
-      if (task.status === 'queued' && ['not_started', 'interrupted_local_analysis',
-            'failed_local_analysis'].includes(task.execution)) {
+      if (!task.originalRemoteTaskId && task.status === 'queued'
+          && ['not_started', 'interrupted_local_analysis',
+              'failed_local_analysis'].includes(task.execution)) {
         const approve = document.createElement('button');
         approve.type = 'button';
         approve.className = 'task-action';
@@ -370,7 +371,7 @@ function renderTasks(tasks) {
         result.addEventListener('click', () => void showLocalAnalysis(task.id, result));
         actions.append(result);
       }
-      if (['queued', 'running'].includes(task.status)) {
+      if (!task.originalRemoteTaskId && ['queued', 'running'].includes(task.status)) {
         const cancel = document.createElement('button');
         cancel.type = 'button';
         cancel.className = 'task-action task-cancel';
