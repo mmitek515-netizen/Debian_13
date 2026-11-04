@@ -57,6 +57,9 @@
             <button class="nav-button" type="button" data-view="codex" aria-label="Centrum Programowania Codex">
               <span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">Codex · programowanie</span>
             </button>
+            <button class="nav-button" type="button" data-view="github" aria-label="GitHub i MCP">
+              <span class="nav-icon" aria-hidden="true">⑂</span><span class="nav-label">GitHub · MCP</span>
+            </button>
             <button class="nav-button" type="button" data-view="terminal" aria-label="Terminal">
               <span class="nav-icon" aria-hidden="true">›_</span><span class="nav-label">Terminal</span>
             </button>
@@ -110,14 +113,22 @@
             <div class="triad-chat-header" aria-label="Informacje o rozmowie">
               <div>
                 <span class="triad-kicker">TRIAD COMMUNICATION PROTOCOL</span>
-                <h2>Dialog Triady <span class="triad-model-tag">OLLAMA + REAL VISION</span></h2>
+                <h2><span id="sync-chat-title">Dialog Triady</span> <span class="triad-model-tag">OLLAMA + REAL VISION</span></h2>
                 <p>Aria · Alex · Astyria · Aurelius — profile AI; aktywność oryginalnych agentów sprawdzisz w diagnostyce.</p>
               </div>
-              <span class="triad-connection" id="triad-connection-label">Wiadomości przez prywatne API</span>
+              <div class="sync-indicator" aria-live="polite">
+                <span class="triad-connection" id="triad-connection-label">Wiadomości przez prywatne API</span>
+                <span id="sync-status" class="triad-connection">Oczekiwanie na synchronizację…</span>
+              </div>
             </div>
             <div id="chat-transcript" class="transcript" aria-label="Rozmowa" aria-live="polite" aria-relevant="additions text">
               <p class="empty-state">To jest Dialog Triady. Wybierz profil, napisz wiadomość albo dołącz zdjęcie. Odpowiedź otrzymasz po uruchomieniu modelu Ollama.</p>
             </div>
+            <details class="sync-details">
+              <summary>Synchronizacja widoków · zdarzenia</summary>
+              <p>Bezpośrednie polecenie aplikacji: <code>/panel tytuł Moje Centrum AI</code>. To nie jest inferencja modelu.</p>
+              <ul id="sync-event-list" aria-label="Potwierdzone zmiany interfejsu"></ul>
+            </details>
             <form id="chat-form" class="composer">
               <label class="visually-hidden" for="chat-message">Wiadomość</label>
               <textarea
@@ -141,6 +152,7 @@
               </div>
               <div class="form-footer">
                 <p id="chat-feedback" class="form-feedback" aria-live="polite">Wiadomości są wysyłane do lokalnego API. Historia rozmów będzie zapisywana w SQLite.</p>
+                <button id="sync-example" type="button" class="button button-secondary">Wstaw przykład synchronizacji</button>
                 <button id="chat-submit" type="submit" class="button button-primary">Wyślij</button>
                 <button id="chat-stop" class="button button-secondary" type="button" hidden>Zatrzymaj</button>
               </div>
@@ -286,6 +298,39 @@
             <p id="ai-center-error" class="status-error" role="status" aria-live="polite"></p>
             <p class="work-limit-note">Worker po zaakceptowaniu zadania generuje raport i zapisuje go w SQLite. Nie wykonuje automatycznie poleceń systemowych ani nie modyfikuje repozytorium. Codex ma własną zakładkę do programowania; ChatGPT Work jest opcjonalne i nie jest wymagane.</p>
             <button type="button" class="button button-secondary" data-view="work">Przejdź do kolejki zadań</button>
+          </section>
+
+          <section id="github-view" class="workspace-view settings-view github-view" aria-labelledby="github-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">GITHUB CONNECT · RZECZYWISTY ODCZYT</p>
+                <h2 id="github-title">GitHub · MCP</h2>
+              </div>
+              <button id="github-refresh" class="button button-secondary" type="button">Odśwież GitHub</button>
+            </div>
+            <p class="work-limit-note">Dane GitHub pochodzą z API wywoływanego przez serwer Debian 13. Konto GitHub połączone z ChatGPT nie jest automatycznie udostępnione Debianowi. Ten widok nie wykonuje poleceń agentów, commitów ani merge.</p>
+            <dl class="runtime-grid github-stats" aria-live="polite">
+              <div><dt>Repozytorium</dt><dd id="github-repository">Sprawdzanie…</dd></div>
+              <div><dt>GitHub API</dt><dd id="github-access">Niezweryfikowany</dd></div>
+              <div><dt>Ostatni odczyt</dt><dd id="github-observed">Brak danych</dd></div>
+              <div><dt>ChatGPT ↔ serwer MCP</dt><dd>Niepotwierdzone</dd></div>
+            </dl>
+            <p id="github-error" class="status-error" role="status" aria-live="polite"></p>
+            <div class="github-grid">
+              <section class="github-panel" aria-labelledby="github-prs-title">
+                <div class="github-panel-header"><h3 id="github-prs-title">Pull Requests</h3><span id="github-prs-count" class="github-count">—</span></div>
+                <ul id="github-prs" class="github-items"><li class="empty-state">Otwórz kartę GitHub, aby pobrać dane.</li></ul>
+              </section>
+              <section class="github-panel" aria-labelledby="github-issues-title">
+                <div class="github-panel-header"><h3 id="github-issues-title">Issues</h3><span id="github-issues-count" class="github-count">—</span></div>
+                <ul id="github-issues" class="github-items"><li class="empty-state">Otwórz kartę GitHub, aby pobrać dane.</li></ul>
+              </section>
+              <section class="github-panel" aria-labelledby="github-runs-title">
+                <div class="github-panel-header"><h3 id="github-runs-title">GitHub Actions · CI</h3><span id="github-runs-count" class="github-count">—</span></div>
+                <ul id="github-runs" class="github-items"><li class="empty-state">Otwórz kartę GitHub, aby pobrać dane.</li></ul>
+              </section>
+            </div>
+            <p class="work-limit-note">GitHub Connect korzysta z wyłącznie odczytowych endpointów REST. Brak wyników albo błędy autoryzacji nie oznaczają zakończonych prac. Wtyczka ChatGPT i uruchomienie niezależnych agentów wymagają osobnej konfiguracji.</p>
           </section>
 
           <section id="codex-view" class="workspace-view settings-view codex-view" aria-labelledby="codex-title" hidden>
