@@ -2,8 +2,8 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Debian 13 — GPT Actions",
-    "version": "0.1.0",
-    "description": "Operator-approved access to the real Debian 13 authenticated API. Requires an operator-controlled HTTPS reverse proxy. These endpoints do not perform arbitrary OS operations."
+    "version": "0.2.0",
+    "description": "Authenticated operator-approved access to live Debian 13 API. Includes read-only Work queue and original-agent registry diagnostics; no task execution or proof of autonomous AI. Requires an independently deployed HTTPS reverse proxy and operator consent."
   },
   "servers": [
     {
@@ -192,6 +192,128 @@
           },
           "503": {
             "description": "Model is not configured or unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/original-agents": {
+      "get": {
+        "operationId": "getDebian13OriginalAgents",
+        "summary": "Read observed source registry status of the four original agents",
+        "description": "Returns source profile metadata and whether the original registry is configured/reachable. connected and workerVerified remain false until independently proven. Never infer real autonomous agent execution from source profiles or registry entries.",
+        "responses": {
+          "200": {
+            "description": "Original agents and verified registry reachability; not a proof of inference",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "agents",
+                    "registryConfigured",
+                    "registryReachable",
+                    "originalAgentExecutionVerified"
+                  ],
+                  "properties": {
+                    "sourceRepository": {
+                      "type": "string"
+                    },
+                    "registryConfigured": {
+                      "type": "boolean"
+                    },
+                    "registryReachable": {
+                      "type": "boolean"
+                    },
+                    "originalAgentExecutionVerified": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "agents": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "connected": {
+                            "type": "boolean"
+                          },
+                          "workerVerified": {
+                            "type": "boolean"
+                          },
+                          "tasksInRegistry": {
+                            "type": "integer"
+                          },
+                          "runningEntriesInRegistry": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/api/v1/tasks": {
+      "get": {
+        "operationId": "listDebian13WorkQueue",
+        "summary": "Read queued Work tasks, not evidence of executed AI tasks",
+        "description": "Read-only listing of locally stored SQLite review tasks. A queued item and workersRunning field are observations, not proof that an agent worked or that GitHub PRs were created. This action cannot dispatch, cancel, create or approve tasks.",
+        "responses": {
+          "200": {
+            "description": "Persisted Work task queue with execution labels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "tasks",
+                    "storage",
+                    "workersRunning"
+                  ],
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "storage": {
+                      "type": "string",
+                      "enum": [
+                        "sqlite"
+                      ]
+                    },
+                    "workersRunning": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "429": {
+            "description": "Rate limited"
           }
         }
       }

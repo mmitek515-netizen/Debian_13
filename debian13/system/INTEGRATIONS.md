@@ -46,8 +46,14 @@ docker compose -f compose.yaml exec -T debian13-system \
   python3 /opt/debian13/system/mcp_server.py
 ```
 
-This is a stdio MCP bridge, not an independently exposed remote HTTP MCP
-server. It cannot reach GitHub unless separate tools are safely added.
+The stdio server remains available for local clients. An optional
+**loopback-only** HTTP wrapper is now provided in `mcp_http_gateway.py`
+with documented setup and exact security constraints in
+[`MCP_HTTP_GATEWAY.md`](MCP_HTTP_GATEWAY.md). This wrapper is **not** a
+publicly deployed HTTPS server, OAuth identity provider or active ChatGPT
+connection; it does not execute tasks or reach GitHub automatically.
+It implements stateless Streamable HTTP with 2025-11-25 compatibility;
+the 2026-07-28 protocol and client compatibility must be tested separately.
 
 ## 2. GPT Actions — authenticated API
 
@@ -66,11 +72,23 @@ The schema exposes only real endpoints:
 - GET `/v1/profiles`
 - GET `/v1/diagnostics`
 - GET `/v1/integrations`
+- GET `/api/v1/tasks` — persisted Work queue, including `workersRunning`;
+  **queued means recorded, not executed**
+- GET `/api/v1/original-agents` — state of the source task registry and
+  explicit `workerVerified` / `originalAgentExecutionVerified` indicators;
+  **a profile or registry entry is not proof of an autonomous agent**
 - POST `/v1/chat` (text only, requires reachable model provider)
 
-The last operation is marked consequential and may require confirmation.
+The POST operation is marked consequential and may require confirmation.
+The two new GET operations are read-only; the schema does not offer task
+dispatch, writes, root, shell or purchase actions.
 GPT Actions are **not yet connected to a specific GPT**; import, HTTPS
 deployment, account permissions and real request tests remain outstanding.
+Until an operator configures a compatible client and confirms an HTTPS test
+request, the integration MUST display `connected=false`. Never expose the
+localhost port, reverse-proxy admin endpoints or bearer tokens publicly.
+The task list contains private operator descriptions; use a dedicated
+read-only credential/proxy with access controls before any external client.
 Do not use `/v1/terminal` as a GPT Action.
 
 ## 3. Codex — manual GitHub issue-to-PR execution

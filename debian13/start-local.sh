@@ -14,6 +14,8 @@ Default: serve the real Python API + interactive UI on PRIVATE loopback ports.
 Connect an existing AI provider with MODEL_CHAT_URL, MODEL_API_KEY, MODEL_NAME;
 without it the UI works, while AI responses correctly report unavailable.
 Default ports: 3000 for GUI, 8765 for backend (both localhost only).
+Optional local MCP: set DEBIAN13_ENABLE_MCP_HTTP=1 (port 8766, loopback only).
+The private MCP token is persisted under DEBIAN13_STATE_DIR and not printed.
 HELP
 }
 case "${1:-}" in
@@ -55,7 +57,10 @@ import ast, sys
 root = Path(sys.argv[1])
 for path in [root / "system/server.py", root / "system/work_store.py",
              root / "system/alex_bridge.py", root / "system/alex_handoff.py",
-             root / "ui/dev_server.py"]:
+             root / "ui/dev_server.py", root / "system/mcp_server.py",
+             root / "system/mcp_http_gateway.py",
+             root / "system/mcp_preflight.py",
+             root / "system/private_token_file.py"]:
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 print("PASS: Python runtime, launch ports and application modules are valid.")
 PY
@@ -68,16 +73,49 @@ mkdir -p "$STATE_DIR" "$WORKSPACE_DIR"
 chmod 700 "$STATE_DIR" "$WORKSPACE_DIR"
 TOKEN_FILE="$STATE_DIR/operator-token"
 if [[ -z "${DEBIAN13_API_TOKEN:-}" ]]; then
-  if [[ ! -s "$TOKEN_FILE" ]]; then
-    python3 -c 'import secrets;print(secrets.token_urlsafe(48))' > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
+  # Never trust an existing symlink, hard link or group/world-readable secret.
+  if ! DEBIAN13_API_TOKEN="$(python3 "$ROOT/system/private_token_file.py" "$TOKEN_FILE")"; then
+    echo "ERROR: refused unsafe private API token file." >&2
+    exit 1
   fi
   export DEBIAN13_API_TOKEN
-  DEBIAN13_API_TOKEN="$(cat "$TOKEN_FILE")"
 fi
 if (( ${#DEBIAN13_API_TOKEN} < 32 )); then
   echo "ERROR: DEBIAN13_API_TOKEN must be at least 32 characters." >&2
   exit 1
+fi
+
+# MCP is strictly opt-in and never changes private Codespaces port visibility.
+MCP_ENABLED="${DEBIAN13_ENABLE_MCP_HTTP:-0}"
+MCP_PID=""
+if [[ "$MCP_ENABLED" != "0" && "$MCP_ENABLED" != "1" ]]; then
+  echo "ERROR: DEBIAN13_ENABLE_MCP_HTTP must be 0 or 1." >&2
+  exit 1
+fi
+if [[ "$MCP_ENABLED" == "1" ]]; then
+  MCP_PORT="${DEBIAN13_MCP_GATEWAY_PORT:-8766}"
+  python3 - "$MCP_PORT" "$API_PORT" "$UI_PORT" <<'PY'
+import sys
+try:
+    mcp, api, ui = (int(value) for value in sys.argv[1:])
+    assert 1024 <= mcp <= 65535 and mcp not in (api, ui)
+except (ValueError, AssertionError):
+    raise SystemExit("ERROR: MCP gateway port must be 1024..65535, distinct from API and UI.")
+PY
+  MCP_TOKEN_FILE="$STATE_DIR/mcp-gateway-token"
+  if [[ -z "${DEBIAN13_MCP_GATEWAY_TOKEN:-}" ]]; then
+    if ! DEBIAN13_MCP_GATEWAY_TOKEN="$(python3 "$ROOT/system/private_token_file.py" "$MCP_TOKEN_FILE")"; then
+      echo "ERROR: refused unsafe private MCP token file." >&2
+      exit 1
+    fi
+    export DEBIAN13_MCP_GATEWAY_TOKEN
+  fi
+  if [[ "${#DEBIAN13_MCP_GATEWAY_TOKEN}" -lt 32 ||
+        "$DEBIAN13_MCP_GATEWAY_TOKEN" == "$DEBIAN13_API_TOKEN" ]]; then
+    echo "ERROR: MCP gateway requires a distinct secret (32+ characters)." >&2
+    exit 1
+  fi
+  export DEBIAN13_SYSTEM_API_URL="http://127.0.0.1:$API_PORT"
 fi
 
 export WORKSPACE_DIR HOST=127.0.0.1 PORT="$API_PORT"
@@ -87,12 +125,12 @@ API_PID=$!
 UI_PID=""
 cleanup() {
   trap - EXIT INT TERM HUP
-  for child in "$UI_PID" "$API_PID"; do
+  for child in "$MCP_PID" "$UI_PID" "$API_PID"; do
     if [[ -n "$child" ]] && kill -0 "$child" 2>/dev/null; then
       kill "$child" 2>/dev/null || true
     fi
   done
-  for child in "$UI_PID" "$API_PID"; do
+  for child in "$MCP_PID" "$UI_PID" "$API_PID"; do
     if [[ -n "$child" ]]; then
       wait "$child" 2>/dev/null || true
     fi
@@ -134,10 +172,57 @@ then
   exit 1
 fi
 
+if [[ "$MCP_ENABLED" == "1" ]]; then
+  python3 -u "$ROOT/system/mcp_http_gateway.py" >"$STATE_DIR/mcp.log" 2>&1 &
+  MCP_PID=$!
+  MCP_READY=0
+  for _attempt in $(seq 1 40); do
+    if ! kill -0 "$MCP_PID" 2>/dev/null; then
+      echo "ERROR: MCP gateway stopped. See $STATE_DIR/mcp.log" >&2
+      exit 1
+    fi
+    if python3 - "$MCP_PORT" <<'PY'
+import json, os, sys, urllib.request
+port = sys.argv[1]
+request = urllib.request.Request(
+    "http://127.0.0.1:" + port + "/mcp",
+    data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}).encode(),
+    headers={"Authorization": "Bearer " + os.environ["DEBIAN13_MCP_GATEWAY_TOKEN"],
+             "Content-Type": "application/json",
+             "Accept": "application/json, text/event-stream",
+             "MCP-Protocol-Version": "2025-11-25"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=.5) as response:
+        tools = json.load(response)["result"]["tools"]
+        assert response.status == 200
+        assert any(t["name"] == "debian13_work_tasks" for t in tools)
+except Exception:
+    raise SystemExit(1)
+PY
+    then
+      MCP_READY=1
+      break
+    fi
+    sleep .15
+  done
+  if [[ "$MCP_READY" != "1" ]] || ! kill -0 "$MCP_PID" 2>/dev/null; then
+    echo "ERROR: MCP tools/list readiness failed. See $STATE_DIR/mcp.log" >&2
+    exit 1
+  fi
+fi
+
 echo "Debian 13 console is starting:"
 echo "  GUI: http://127.0.0.1:$UI_PORT"
 echo "  API: http://127.0.0.1:$API_PORT (authenticated, loopback only)"
 echo "  Work: persistent SQLite in private workspace"
+if [[ "$MCP_ENABLED" == "1" ]]; then
+  echo "  MCP: local read-only HTTP on http://127.0.0.1:$MCP_PORT/mcp (separate token)"
+  echo "  MCP: no external HTTPS/OAuth/tunnel; server is NOT connected to ChatGPT"
+else
+  echo "  MCP: HTTP disabled (set DEBIAN13_ENABLE_MCP_HTTP=1 to enable locally)"
+fi
 echo "  Alex: not started; original agent requires independent connected runtime"
 if [[ -n "${MODEL_CHAT_URL:-}" ]]; then
   echo "  AI: provider configured; live inference must still be checked"
