@@ -128,7 +128,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getMessages: (sessionId) => request(`sessions/${encodeURIComponent(sessionId)}/messages`),
     cancelTask: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/cancel`, { method: 'POST' }),
     chatStream,
-    vision: (agent, message, image) => post('vision', { profile: agent, message, image }),
+    vision: (agent, message, image, sessionId) => post('vision', { profile: agent, message, image, ...(sessionId ? { session_id: sessionId } : {}) }),
     terminal: (command) => post('terminal', { command }),
   });
 }
@@ -721,7 +721,7 @@ async function loadHistory(sessionId) {
     renderTranscriptMessages(payload.messages);
     renderHistory(activeSessionId);
     showView('chat');
-    setText('chat-feedback', 'Historia pobrana z pamięci API.');
+    setText('chat-feedback', 'Historia Dialogu Triady odtworzona z lokalnej bazy SQLite.');
   } catch (error) {
     const history = readHistory().filter((item) => item.id !== sessionId);
     writeHistory(history);
@@ -760,7 +760,7 @@ function showView(view) {
       button.setAttribute('aria-pressed', String(active));
     }
   }
-  const titles = { chat: 'W czym mogę pomóc?', work: 'Work', terminal: 'Terminal', settings: 'Status systemu' };
+  const titles = { chat: 'Dialog Triady', work: 'Work', terminal: 'Terminal', settings: 'Status systemu' };
   setText('page-title', titles[view] ?? titles.chat);
 }
 
@@ -881,84 +881,128 @@ async function prepareVisionImage(file) {
 }
 
 function bindChatForm() {
+  // Dialog Triady: independent, UI-only chat controller, shared authenticated API.
+  // The agent dropdown selects a profile, not proof of an autonomous worker.
   const form = document.getElementById('chat-form');
-  if (!form) return;
   const message = document.getElementById('chat-message');
-  const attachment = document.getElementById('chat-image');
+  const fileInput = document.getElementById('chat-image');
   const preview = document.getElementById('chat-image-preview');
-  const thumbnail = document.getElementById('chat-image-thumbnail');
-  const fileName = document.getElementById('chat-image-name');
-  let previewUrl = '';
+  const previewImage = document.getElementById('chat-image-thumbnail');
+  const previewName = document.getElementById('chat-image-name');
+  const feedback = document.getElementById('chat-feedback');
+  const submit = document.getElementById('chat-submit');
+  const stop = document.getElementById('chat-stop');
+  if (!form || !message || !fileInput || !feedback || !submit || !stop) return;
+
+  let filePreviewUrl = '';
   let visionBusy = false;
-  const clearAttachment = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = '';
-    if (attachment) attachment.value = '';
-    if (thumbnail) thumbnail.removeAttribute('src');
+  const clearPhoto = () => {
+    if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
+    filePreviewUrl = '';
+    fileInput.value = '';
+    if (previewImage) previewImage.removeAttribute('src');
     if (preview) preview.hidden = true;
+    if (previewName) previewName.textContent = '';
   };
-  attachment?.addEventListener('change', () => {
-    clearAttachmentPreviewOnly();
-    const file = attachment.files?.[0];
+  const showError = (error, label = 'Błąd Dialogu Triady') => {
+    const detail = typeof error?.message === 'string' ? error.message : 'Nie udało się wykonać operacji.';
+    appendTranscript('error', label, detail);
+    feedback.textContent = detail;
+  };
+  const setBusy = (busy, canStop = false) => {
+    submit.disabled = busy;
+    submit.hidden = busy && canStop;
+    stop.hidden = !(busy && canStop);
+    if (!busy) {
+      stop.disabled = false;
+      stop.textContent = 'Zatrzymaj';
+    }
+  };
+
+  fileInput.addEventListener('change', () => {
+    clearPhotoPreview();
+    const file = fileInput.files?.[0];
     if (!file) return;
-    if (!['image/png', 'image/jpeg'].includes(file.type) || file.size > 8 * 1024 * 1024) {
-      setText('chat-feedback', 'Wybierz obraz JPEG/PNG o rozmiarze do 8 MB.');
-      attachment.value = '';
+    if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+      fileInput.value = '';
+      feedback.textContent = 'Real Vision obsługuje zdjęcia JPEG/PNG do 8 MB.';
       return;
     }
-    previewUrl = URL.createObjectURL(file);
-    if (thumbnail) thumbnail.src = previewUrl;
-    if (fileName) fileName.textContent = file.name;
+    filePreviewUrl = URL.createObjectURL(file);
+    if (previewImage) previewImage.src = filePreviewUrl;
+    if (previewName) previewName.textContent = file.name;
     if (preview) preview.hidden = false;
+    feedback.textContent = 'Zdjęcie jest gotowe. Możesz dodać pytanie lub wysłać je bez tekstu.';
   });
-  function clearAttachmentPreviewOnly() {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = '';
-    if (thumbnail) thumbnail.removeAttribute('src');
+  function clearPhotoPreview() {
+    if (filePreviewUrl) URL.revokeObjectURL(filePreviewUrl);
+    filePreviewUrl = '';
+    if (previewImage) previewImage.removeAttribute('src');
     if (preview) preview.hidden = true;
   }
-  document.getElementById('chat-image-remove')?.addEventListener('click', clearAttachment);
-  message?.addEventListener('keydown', (event) => {
+  document.getElementById('chat-image-remove')?.addEventListener('click', clearPhoto);
+  message.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       form.requestSubmit();
     }
   });
+
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const agent = document.getElementById('chat-agent');
-    const submit = document.getElementById('chat-submit');
-    const stop = document.getElementById('chat-stop');
-    const feedback = document.getElementById('chat-feedback');
-    const text = message?.value.trim();
-    if (!text || !agent || !feedback || activeChatController || visionBusy) return;
-    const file = attachment?.files?.[0] ?? null;
-    if (file) {
+    if (activeChatController || visionBusy) return;
+    const agentId = document.getElementById('chat-agent')?.value;
+    if (!AGENT_PROFILES.some(({ id }) => id === agentId)) {
+      feedback.textContent = 'Wybierz profil agenta.';
+      return;
+    }
+    const text = message.value.trim();
+    const photo = fileInput.files?.[0] ?? null;
+    if (!text && !photo) {
+      feedback.textContent = 'Napisz wiadomość albo dodaj zdjęcie.';
+      return;
+    }
+    if (text.length > 4000) {
+      feedback.textContent = 'Wiadomość przekracza limit 4000 znaków API.';
+      return;
+    }
+
+    const name = AGENT_PROFILES.find(({ id }) => id === agentId)?.name ?? agentId;
+    const prompt = text || 'Opisz dokładnie zdjęcie.';
+    const previousSession = activeSessionId;
+    appendTranscript('user', `Ty · ${name}${photo ? ' · Real Vision' : ''}`,
+      photo ? `${prompt} [dołączono zdjęcie]` : prompt);
+    const bubble = appendTranscript('assistant', `${name} · łączenie z modelem`, '');
+    setBusy(true, !photo);
+
+    if (photo) {
       visionBusy = true;
-      submit.disabled = true;
-      const name = AGENT_PROFILES.find((profile) => profile.id === agent.value)?.name ?? agent.value;
-      appendTranscript('user', `Ty · ${name} · zdjęcie`, `${text} (dołączono obraz)`);
-      const answer = appendTranscript('assistant', `${name} · analizuje zdjęcie`, 'Wysyłanie do Vision…');
-      feedback.textContent = 'Analiza obrazu przez model Vision…';
+      feedback.textContent = 'Real Vision: przygotowywanie zdjęcia do Ollamy…';
       try {
-        const prepared = await prepareVisionImage(file);
-        const result = await api.vision(agent.value, text, prepared);
-        if (typeof result.content !== 'string') throw new ApiError('Brak tekstu odpowiedzi modelu Vision.');
-        if (answer) {
-          answer.text.textContent = result.content;
-          answer.heading.textContent = `${name} · ${result.model ?? 'Vision'}`;
+        const encoded = await prepareVisionImage(photo);
+        feedback.textContent = 'Real Vision: oczekiwanie na odpowiedź modelu…';
+        const response = await api.vision(agentId, prompt, encoded, previousSession);
+        if (typeof response.content !== 'string' || !response.content.trim()) {
+          throw new ApiError('Model Vision zwrócił pustą odpowiedź.');
+        }
+        if (bubble) {
+          bubble.text.textContent = response.content;
+          bubble.heading.textContent = `${name} · ${response.model || 'Real Vision'}`;
+        }
+        if (response.sessionId && SESSION_ID_PATTERN.test(response.sessionId)) {
+          activeSessionId = response.sessionId;
+          recordHistory(response.sessionId, prompt);
         }
         message.value = '';
-        clearAttachment();
-        feedback.textContent = 'Odpowiedź modelu Vision otrzymana z API.';
+        clearPhoto();
+        feedback.textContent = 'Analiza obrazu zakończona. Odpowiedź zapisana w historii.';
       } catch (error) {
-        answer?.entry.remove();
-        appendTranscript('error', 'Błąd Vision', error.message);
-        feedback.textContent = error.message;
+        bubble?.entry.remove();
+        showError(error, 'Błąd Real Vision');
       } finally {
         visionBusy = false;
-        submit.disabled = false;
-        await loadTasks();
+        setBusy(false);
+        void loadTasks();
       }
       return;
     }
@@ -967,118 +1011,87 @@ function bindChatForm() {
     activeChatController = controller;
     activeChatTaskId = '';
     activeChatCancelMessage = '';
-    const agentName = AGENT_PROFILES.find((profile) => profile.id === agent.value)?.name ?? agent.value;
-    const userMessage = text;
-    appendTranscript('user', `Ty · ${agentName}`, userMessage);
-    const responseBubble = appendTranscript('assistant', `${agentName} · łączenie`);
-    submit.hidden = true;
-    stop.hidden = false;
-    feedback.textContent = 'Łączenie ze strumieniem API…';
-    let responseText = '';
-    let receivedDone = false;
-    let receivedCancelled = false;
-    let responseSource = '';
-    let responseAgent = agentName;
-    let responseSessionId = '';
+    feedback.textContent = 'Dialog Triady: oczekiwanie na model…';
+    let answer = '';
+    let done = false;
+    let cancelled = false;
+    let responseSession = '';
+    let source = '';
+    let replyName = name;
 
     try {
-      await api.chatStream(userMessage, agent.value, activeSessionId, ({ event: streamEvent, payload }) => {
-        if (streamEvent === 'meta' && typeof payload.session_id === 'string') {
-          responseSessionId = payload.session_id;
+      await api.chatStream(prompt, agentId, previousSession, ({ event: kind, payload }) => {
+        if (kind === 'meta') {
+          if (typeof payload.session_id === 'string') responseSession = payload.session_id;
           if (typeof payload.task_id === 'string' && SESSION_ID_PATTERN.test(payload.task_id)) {
             activeChatTaskId = payload.task_id;
           }
-        } else if (streamEvent === 'delta' && typeof payload.text === 'string') {
-          responseText += payload.text;
-          if (responseBubble) responseBubble.text.textContent = responseText;
+        } else if (kind === 'delta' && typeof payload.text === 'string') {
+          answer += payload.text;
+          if (bubble) bubble.text.textContent = answer;
           const transcript = document.getElementById('chat-transcript');
           if (transcript) transcript.scrollTop = transcript.scrollHeight;
-        } else if (streamEvent === 'done') {
-          receivedDone = true;
-          responseSessionId = payload.session_id ?? responseSessionId;
-          responseSource = payload.source ?? '';
-          responseAgent = AGENT_PROFILES.find((profile) => profile.id === payload.agent)?.name ?? responseAgent;
-        } else if (streamEvent === 'cancelled') {
-          receivedCancelled = true;
-          responseSessionId = payload.session_id ?? responseSessionId;
-          if (responseBubble) {
-            responseBubble.heading.textContent = `${agentName} · anulowano przez API`;
-            if (!responseText) responseBubble.text.textContent = 'API potwierdziło przerwanie zadania.';
-          }
-        } else if (streamEvent === 'error') {
-          throw new ApiError(typeof payload.error === 'string' ? payload.error : 'Strumień czatu zakończył się błędem.');
+        } else if (kind === 'done') {
+          done = true;
+          if (typeof payload.session_id === 'string') responseSession = payload.session_id;
+          source = typeof payload.source === 'string' ? payload.source : 'API';
+          replyName = AGENT_PROFILES.find(({ id }) => id === payload.agent)?.name ?? name;
+        } else if (kind === 'cancelled') {
+          cancelled = true;
+        } else if (kind === 'error') {
+          throw new ApiError(typeof payload.error === 'string' ? payload.error : 'Błąd strumienia.');
         }
       }, controller.signal);
-      if (receivedCancelled) {
-        if (responseSessionId && SESSION_ID_PATTERN.test(responseSessionId)) {
-          activeSessionId = responseSessionId;
-          recordHistory(responseSessionId, userMessage);
+      if (!done && !cancelled) throw new ApiError('Serwer nie potwierdził zakończenia odpowiedzi.');
+      if (cancelled) {
+        if (bubble) bubble.heading.textContent = `${name} · anulowano`;
+        feedback.textContent = 'API potwierdziło anulowanie.';
+      } else {
+        if (bubble) bubble.heading.textContent = `${replyName} · ${source}`;
+        if (responseSession && SESSION_ID_PATTERN.test(responseSession)) {
+          activeSessionId = responseSession;
+          recordHistory(responseSession, prompt);
         }
-        feedback.textContent = 'API potwierdziło anulowanie zadania.';
-        return;
+        message.value = '';
+        feedback.textContent = 'Odpowiedź z modelu zapisana w historii Dialogu Triady.';
       }
-      if (!receivedDone) throw new ApiError('Strumień zakończył się przed potwierdzeniem odpowiedzi.');
-      if (responseBubble) responseBubble.heading.textContent = `${responseAgent} · ${responseSource || 'API'}`;
-      if (responseSessionId && SESSION_ID_PATTERN.test(responseSessionId)) {
-        activeSessionId = responseSessionId;
-        recordHistory(responseSessionId, userMessage);
-      }
-      message.value = '';
-      feedback.textContent = responseSource === 'ollama'
-        ? 'Odpowiedź lokalnej Ollamy; API nie zapisuje historii sesji.'
-        : responseSource === 'model_provider'
-          ? 'Odpowiedź podłączonego dostawcy AI; brak zapisu historii sesji.'
-          : 'Odpowiedź API.';
     } catch (error) {
       if (error?.name === 'AbortError') {
-        if (responseBubble) responseBubble.heading.textContent = `${agentName} · strumień przerwany lokalnie`;
-        feedback.textContent = activeChatCancelMessage
-          || 'Zatrzymano odbiór strumienia. Backend nie potwierdził anulowania zadania.';
+        if (bubble) bubble.heading.textContent = `${name} · transmisja przerwana`;
+        feedback.textContent = activeChatCancelMessage ||
+          'Przerwano odbiór. Anulowanie działania modelu nie zostało potwierdzone.';
       } else {
-        if (!responseText && responseBubble) responseBubble.entry.remove();
-        else if (responseBubble) responseBubble.heading.textContent = `${agentName} · odpowiedź nieukończona`;
-        appendTranscript('error', `Błąd API${error.status ? ` · HTTP ${error.status}` : ''}`, error.message);
-        feedback.textContent = error.status === 503
-          ? 'Model niedostępny — API nie wygenerowało odpowiedzi.'
-          : error.message;
+        if (!answer) bubble?.entry.remove();
+        else if (bubble) bubble.heading.textContent = `${name} · niepełna odpowiedź`;
+        showError(error);
       }
     } finally {
       activeChatController = null;
       activeChatTaskId = '';
-      submit.hidden = false;
-      stop.hidden = true;
-      stop.disabled = false;
-      stop.textContent = 'Zatrzymaj';
-      await loadTasks();
+      setBusy(false);
+      void loadTasks();
     }
   });
-  document.getElementById('chat-stop')?.addEventListener('click', async (event) => {
-    const stop = event.currentTarget;
-    if (!activeChatController || stop.disabled) return;
+
+  stop.addEventListener('click', async () => {
     const controller = activeChatController;
+    if (!controller || stop.disabled) return;
     const taskId = activeChatTaskId;
     if (!taskId) {
-      activeChatCancelMessage = 'Brak ID zadania do anulowania. Zatrzymano odbiór strumienia; anulowanie serwera nie jest potwierdzone.';
+      activeChatCancelMessage = 'Przerwano odbiór lokalnie; backend nie potwierdził anulowania.';
       controller.abort();
       return;
     }
     stop.disabled = true;
     stop.textContent = 'Anulowanie…';
-    setText('chat-feedback', 'Wysyłanie żądania anulowania do API…');
     try {
-      const payload = await api.cancelTask(taskId);
-      if (payload.task?.id !== taskId) throw new ApiError('API nie potwierdziło zadania do anulowania.');
-      if (activeChatController !== controller) return;
-      setText('chat-feedback', `API przyjęło anulowanie (${payload.task.status}); oczekiwanie na zdarzenie SSE.`);
+      const response = await api.cancelTask(taskId);
+      if (response.task?.id !== taskId) throw new ApiError('Brak potwierdzenia anulowania.');
+      feedback.textContent = `API przyjęło anulowanie (${response.task.status}).`;
     } catch (error) {
-      if (activeChatController !== controller) return;
+      activeChatCancelMessage = 'Nie potwierdzono anulowania przez API; odbiór przerwany lokalnie.';
       controller.abort();
-      activeChatCancelMessage = error.status === 404
-        ? 'Ten backend nie udostępnia anulowania zadania. Zatrzymano odbiór strumienia lokalnie; anulowanie serwera nie jest potwierdzone.'
-        : error.status === 401 || error.status === 403
-          ? `${error.message} Zatrzymano odbiór strumienia; anulowanie serwera nie jest potwierdzone.`
-          : `${error.message} Zatrzymano odbiór strumienia; anulowanie serwera nie jest potwierdzone.`;
-      setText('chat-feedback', activeChatCancelMessage);
+      feedback.textContent = error.message || activeChatCancelMessage;
     }
   });
 }
