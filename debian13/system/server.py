@@ -686,7 +686,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         if original_status_match:
             task = self.server.work_store.get_task(original_status_match.group(1))
             if not task:
-                raise ApiError(404, "task_not_found", "Task not found.")
+                self._send_json(404, {"error": {"code": "task_not_found",
+                                                "message": "Task not found."}})
+                return
             submission = self.server.work_store.get_original_submission(task["id"])
             if not submission:
                 self._send_json(404, {"error": {"code": "not_submitted",
