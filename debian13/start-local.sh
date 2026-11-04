@@ -58,6 +58,8 @@ for path in [root / "system/server.py", root / "system/work_store.py",
              root / "system/chat_memory.py", root / "system/codex_status.py",
              root / "system/ai_center_worker.py", root / "system/mcp_autoconfigure.py",
              root / "system/mcp_launcher.py",
+             root / "system/ui_sync.py", root / "system/github_dashboard.py",
+             root / "system/original_agent_handoff.py",
              root / "ui/dev_server.py"]:
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 print("PASS: Python runtime, launch ports and application modules are valid.")
