@@ -948,6 +948,45 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     if not self.server.chat_memory.exists(session_id):
                         raise ApiError(404, "session_not_found", "Session not found.")
                 clean_message = message.strip()
+                if image is None and clean_message.casefold() in ("/status", "/integracje", "/postep"):
+                    # Explicit operator commands: deterministic, read-only, no LLM or shell.
+                    if clean_message.casefold() == "/status":
+                        diagnostic = runtime_diagnostics(self.server)
+                        local = self.server.work_store.local_worker_status()
+                        content = (
+                            "Status rzeczywistego API Debian 13: aktywne.\\n"
+                            f"Provider modelu: {'skonfigurowany (bez potwierdzenia inferencji)' if diagnostic['providerConfigured'] else 'nieskonfigurowany'}.\\n"
+                            f"Worker lokalny Ollama: {'heartbeat aktualny' if local['workerHeartbeatVerified'] else 'brak potwierdzonego heartbeat'}.\\n"
+                            "Oryginalni agenci i start pełnego systemu Debian 13: niezweryfikowane."
+                        )
+                    else:
+                        progress = integration_progress_report(
+                            codex=codex_status_report(),
+                            ollama=self.server.work_store.local_worker_status(),
+                            original_agents=original_agents_report(),
+                            model_chat_url=self.server.config.get("model_chat_url", ""),
+                        )
+                        lines = [
+                            f"Integracje: {progress['percentage']}% ({progress['verifiedCount']}/{progress['totalCount']} potwierdzonych kontroli)."
+                        ]
+                        for item in progress["modules"]:
+                            lines.append(
+                                f"{item['name']}: {item['percentage']}% ({item['verifiedCount']}/{item['totalCount']})."
+                            )
+                        lines.append("To nie jest procent gotowości OS ani potwierdzenie działania agentów AI.")
+                        content = "\\n".join(lines)
+                    session_id = self.server.chat_memory.save_exchange(
+                        session_id, profile, clean_message, content, "system_command")
+                    if self.path == "/api/v1/chat/stream":
+                        self._send_chat_events(
+                            content, profile, "none", session_id,
+                            source_override="system_command")
+                    else:
+                        self._send_json(200, {
+                            "requestId": request_id, "profile": profile, "content": content,
+                            "model": None, "source": "system_command", "sessionId": session_id,
+                        })
+                    return
                 if image is None:
                     try:
                         new_title = parse_title_command(clean_message)
