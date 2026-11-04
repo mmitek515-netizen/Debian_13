@@ -1,3 +1,5 @@
+import { readWorkspaceSources } from './global_sync.mjs';
+
 export const AGENT_PROFILES = Object.freeze([
   { id: 'aria', name: 'Aria' },
   { id: 'astyria', name: 'Astyria' },
@@ -1067,6 +1069,52 @@ async function refreshDashboard() {
   await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadIntegrationProgress(), loadTasks(), loadAiCenterStatus()]);
 }
 
+let globalSyncBusy = false;
+
+async function synchronizeAllData() {
+  if (globalSyncBusy) return;
+  const button = document.getElementById('global-sync');
+  const status = document.getElementById('global-sync-status');
+  if (!button || !status) return;
+  globalSyncBusy = true;
+  button.disabled = true;
+  button.textContent = 'Synchronizacja…';
+  status.textContent = 'Sprawdzanie źródeł danych API…';
+  try {
+    // This checks current data only; GitHub checkout/deploy and external AI work
+    // require separate authorized operations. Never claim a code deployment.
+    const evidence = await readWorkspaceSources(api);
+    const refreshed = await Promise.allSettled([
+      refreshSyncState(), refreshDashboard(), refreshWork(),
+      refreshGithub(), loadCodexStatus(),
+    ]);
+    const syncState = refreshed[0];
+    const workState = refreshed[2];
+    const renderFailed = refreshed.some(x => x.status === 'rejected')
+      || (syncState.status === 'fulfilled' && syncState.value === null)
+      || (workState.status === 'fulfilled' && workState.value === false);
+    if (activeSessionId && !activeChatController) {
+      await loadHistory(activeSessionId);
+    }
+    document.getElementById('agent-dialog-refresh')?.click();
+    const missing = evidence.failed.join(', ');
+    const partial = !evidence.complete || renderFailed;
+    status.textContent = partial
+      ? `Odczyt ${evidence.successful}/${evidence.total} źródeł`
+          + (missing ? ` · niedostępne: ${missing}` : ' · część widoków niedostępna')
+          + '. Bez wdrażania kodu GitHub.'
+      : `Odczyt ${evidence.successful}/${evidence.total} źródeł potwierdzony. `
+          + 'Odświeżono panel; kod GitHub nie był wdrażany.';
+  } catch {
+    status.textContent = 'Nie udało się odczytać stanu. Nic nie wdrożono ani nie zmieniono na GitHubie.';
+  } finally {
+    globalSyncBusy = false;
+    button.disabled = false;
+    button.textContent = 'Synchronizuj dane';
+  }
+}
+
+
 async function loadHistory(sessionId) {
   if (!SESSION_ID_PATTERN.test(sessionId)) return;
   setText('chat-feedback', 'Pobieranie historii rozmowy…');
@@ -1610,6 +1658,7 @@ if (typeof document !== 'undefined') {
   bindTerminalForm();
   bindWorkCreateForm();
   renderHistory();
+  document.getElementById('global-sync')?.addEventListener('click', synchronizeAllData);
   document.getElementById('refresh-status')?.addEventListener('click', refreshDashboard);
   document.getElementById('codex-refresh')?.addEventListener('click', loadCodexStatus);
   document.getElementById('ai-center-refresh')?.addEventListener('click', loadAiCenterStatus);
