@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 
 from work_store import WorkStore
+from github_dashboard import DashboardCache, GitHubUnavailable
 from chat_memory import ChatMemory
 import mcp_server
 from codex_status import report as codex_status_report
@@ -410,6 +411,7 @@ class Debian13Server(http.server.ThreadingHTTPServer):
         self.workspace = Path(config["workspace"]).resolve()
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.work_store = WorkStore(self.workspace)
+        self.github_dashboard = DashboardCache()
         self.chat_memory = ChatMemory(self.workspace)
         self._alex_dispatch_lock = threading.Lock()
         self._rates: dict[str, tuple[float, int]] = {}
@@ -623,6 +625,16 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         if self.path == "/api/v1/codex/status":
             self._send_json(200, codex_status_report())
+            return
+        if self.path == "/api/v1/github/status":
+            try:
+                snapshot = self.server.github_dashboard.get()
+            except GitHubUnavailable:
+                self._send_json(503, {"error": {
+                    "code": "github_unavailable",
+                    "message": "GitHub configuration or API unavailable."}})
+                return
+            self._send_json(200 if snapshot["githubApiReachable"] else 503, snapshot)
             return
         if self.path == "/api/v1/original-agents":
             self._send_json(200, original_agents_report())
