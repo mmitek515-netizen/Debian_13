@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -46,6 +47,18 @@ class WorkStore:
                     at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS tasks_latest ON tasks(created_at DESC);
+                CREATE TABLE IF NOT EXISTS local_ai_results (
+                    task_id TEXT PRIMARY KEY REFERENCES tasks(id),
+                    agent TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    finished_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS local_worker_heartbeats (
+                    name TEXT PRIMARY KEY,
+                    last_seen_at REAL NOT NULL,
+                    model TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS alex_submissions (
                     task_id TEXT PRIMARY KEY REFERENCES tasks(id),
                     remote_task_id TEXT NOT NULL,
@@ -164,3 +177,138 @@ class WorkStore:
                 (task_id, "alex", "task_accepted_by_remote_api", stamp)
             )
         return self.get_alex_submission(task_id)
+
+    # Local Ollama workers operate on explicitly approved, safe analysis jobs.
+    # These methods NEVER run shell commands or permit remote network actions.
+    def approve_local_analysis(self, task_id: str) -> dict | None:
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT id, agent, status, execution, requires_approval FROM tasks WHERE id=?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["status"] != "queued" or row["execution"] not in (
+                    "not_started", "interrupted_local_analysis", "failed_local_analysis"
+            ):
+                raise ValueError("This task is not eligible for local analysis.")
+            if db.execute("SELECT 1 FROM alex_submissions WHERE task_id=?", (task_id,)).fetchone():
+                raise ValueError("This task was already submitted to the remote Alex API.")
+            stamp = _now()
+            db.execute(
+                "UPDATE tasks SET execution='approved_local_analysis', "
+                "requires_approval=0,updated_at=? WHERE id=?", (stamp, task_id)
+            )
+            db.execute(
+                "INSERT INTO events(task_id,agent,type,at) VALUES (?,?,?,?)",
+                (task_id, row["agent"], "local_analysis_approved", stamp)
+            )
+        return self.get_task(task_id)
+
+    def claim_local_analysis(self) -> dict | None:
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM tasks WHERE status='queued' AND requires_approval=0 "
+                "AND execution='approved_local_analysis' ORDER BY created_at,id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            stamp = _now()
+            db.execute(
+                "UPDATE tasks SET execution='running_local_analysis',updated_at=? "
+                "WHERE id=? AND execution='approved_local_analysis'",
+                (stamp, row["id"])
+            )
+            db.execute(
+                "INSERT INTO events(task_id,agent,type,at) VALUES (?,?,?,?)",
+                (row["id"], row["agent"], "local_analysis_started", stamp)
+            )
+        return self.get_task(row["id"])
+
+    def finish_local_analysis(self, task_id: str, *, model: str,
+                              content: str | None = None, failed: bool = False) -> bool:
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT agent,execution FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None or row["execution"] != "running_local_analysis":
+                return False
+            stamp = _now()
+            execution = "failed_local_analysis" if failed else "completed_local_analysis"
+            if not failed and content:
+                db.execute(
+                    "INSERT INTO local_ai_results(task_id,agent,model,content,finished_at) "
+                    "VALUES(?,?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET "
+                    "model=excluded.model,content=excluded.content,finished_at=excluded.finished_at",
+                    (task_id, row["agent"], model[:120], content[:16000], stamp)
+                )
+            db.execute(
+                "UPDATE tasks SET execution=?,requires_approval=1,updated_at=? WHERE id=?",
+                (execution, stamp, task_id)
+            )
+            db.execute(
+                "INSERT INTO events(task_id,agent,type,at) VALUES (?,?,?,?)",
+                (task_id, row["agent"],
+                 "local_analysis_failed" if failed else "local_analysis_completed", stamp)
+            )
+        return True
+
+    def result_for_task(self, task_id: str) -> dict | None:
+        with self._open() as db:
+            row = db.execute(
+                "SELECT agent,model,content,finished_at FROM local_ai_results WHERE task_id=?",
+                (task_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def recover_interrupted_analysis(self) -> int:
+        """Fail closed after a process crash; never silently replay work."""
+        with self._open() as db:
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT id,agent FROM tasks WHERE execution='running_local_analysis'"
+            ).fetchall()
+            stamp = _now()
+            for row in rows:
+                db.execute(
+                    "UPDATE tasks SET execution='interrupted_local_analysis',"
+                    "requires_approval=1,updated_at=? WHERE id=?",
+                    (stamp, row["id"])
+                )
+                db.execute(
+                    "INSERT INTO events(task_id,agent,type,at) VALUES (?,?,?,?)",
+                    (row["id"], row["agent"], "local_analysis_interrupted", stamp)
+                )
+        return len(rows)
+
+    def heartbeat_local_worker(self, model: str) -> None:
+        with self._open() as db:
+            db.execute(
+                "INSERT INTO local_worker_heartbeats(name,last_seen_at,model) "
+                "VALUES('ollama',?,?) ON CONFLICT(name) DO UPDATE SET "
+                "last_seen_at=excluded.last_seen_at,model=excluded.model",
+                (time.time(), model[:120])
+            )
+
+    def local_worker_status(self) -> dict:
+        with self._open() as db:
+            row = db.execute(
+                "SELECT last_seen_at,model FROM local_worker_heartbeats WHERE name='ollama'"
+            ).fetchone()
+            counts = db.execute(
+                "SELECT execution,COUNT(*) AS qty FROM tasks "
+                "WHERE execution LIKE '%local_analysis' GROUP BY execution"
+            ).fetchall()
+        age = round(max(0, time.time() - row["last_seen_at"])) if row else None
+        return {
+            "type": "local_ollama_queue",
+            "workerHeartbeatVerified": age is not None and age <= 120,
+            "heartbeatAgeSeconds": age,
+            "modelConfigured": row["model"] if row else None,
+            "executionVerified": False,  # Worker heartbeat proves a process, not inference.
+            "queuedByExecution": {item["execution"]: item["qty"] for item in counts},
+            "originalAgentsConnected": False,
+            "chatGPTWorkRequired": False,
+            "notes": "Local analysis only: no shell, code modification, git push or root.",
+        }
