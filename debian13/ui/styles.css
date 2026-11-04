@@ -1282,3 +1282,103 @@ h2 {
   .work-task-form { padding: 12px; }
   .work-task-form button { width: 100%; }
 }
+
+/* Dialog Triady · original Hyperspace-inspired look, no legacy SVL modules. */
+:root {
+  --surface: #0a172b;
+  --surface-raised: #101f37;
+  --border: #254363;
+  --muted: #a2b8d3;
+  --accent: #67d9ff;
+  --focus: #89e7ff;
+}
+body {
+  background:
+    radial-gradient(ellipse at 55% -20%, rgb(21 99 181 / 26%), transparent 52rem),
+    radial-gradient(ellipse at 0% 80%, rgb(5 69 122 / 20%), transparent 42rem),
+    #050b18;
+}
+.topbar {
+  border-bottom-color: rgb(89 199 250 / 19%);
+}
+.brand-mark {
+  border-color: rgb(73 186 255 / 34%);
+  background: linear-gradient(145deg,#102f59,#071323);
+  color: #8edfff;
+  box-shadow: inset 0 0 20px rgb(27 110 233 / 10%), 0 0 18px rgb(24 100 175 / 12%);
+}
+.view-intro h1 {
+  background: linear-gradient(100deg,#f2fbff,#93defd 65%,#4686fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.chat-view {
+  position: relative;
+  isolation: isolate;
+  border-color: rgb(79 186 247 / 28%);
+  background: radial-gradient(circle at 100% 0%, rgb(21 83 143 / 12%), transparent 28rem),
+              linear-gradient(155deg, #081528,#060e1d);
+  box-shadow: 0 20px 54px rgb(0 0 0 / 25%), inset 0 1px rgb(81 184 240 / 7%);
+}
+.triad-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgb(70 159 228 / 20%);
+  background: rgb(5 18 38 / 78%);
+}
+.triad-chat-header h2 {
+  margin: 5px 0;
+  font-size: clamp(1rem, 2vw, 1.3rem);
+  color: #e9f5ff;
+  letter-spacing: .015em;
+}
+.triad-kicker {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: .11em;
+  color: #80b5da;
+}
+.triad-model-tag {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 999px;
+  border: 1px solid #255477;
+  font-family: ui-monospace, monospace;
+  letter-spacing: .05em;
+  font-size: .58em;
+  color: #8de4ff;
+  vertical-align: middle;
+}
+.triad-chat-header p {
+  color: #95aeca;
+  font-size: 11px;
+  margin: 0;
+}
+.triad-connection {
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: #89bcdc;
+}
+.chat-view .transcript {
+  background: linear-gradient(180deg, rgb(3 13 29 / 48%),rgb(5 15 29 / 75%));
+  border-radius: 10px;
+}
+.chat-view .composer {
+  border-top: 1px solid rgb(73 177 233 / 12%);
+}
+.chat-view .vision-select {
+  border-color: rgb(52 167 234 / 28%);
+}
+.chat-view .transcript-heading {
+  color: #94dfff;
+}
+@media (max-width: 540px) {
+  .triad-chat-header { padding: 10px; }
+  .triad-chat-header h2 { font-size: 1rem; }
+}
