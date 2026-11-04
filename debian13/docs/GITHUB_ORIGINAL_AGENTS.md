@@ -35,10 +35,32 @@ darmowego/zewnętrznego silnika; o opłatach decyduje wybrany backend,
 a nie format API. **Nie podawaj klucza OpenAI o zerowym saldzie.**
 
 GitHub-hosted runner nie ma dostępu do Ollamy uruchomionej na
-`127.0.0.1` Twojego komputera/serwera. Aby użyć lokalnego modelu,
-potrzebujesz własnego bezpiecznego runnera z dostępem do hosta
-albo prywatnej, uwierzytelnionej bramy HTTPS. **Nie publikuj
-niezabezpieczonego portu Ollamy 11434 w internecie.**
+`127.0.0.1` Twojego komputera/serwera. Jeśli masz już działającego
+GitHub Actions self-hosted runnera na tym samym serwerze co Ollama,
+możesz ustawić repozytoryjne Variables:
+
+- `DEBIAN13_AGENT_RUNNER=self-hosted` — tylko **etap wywołania modelu**
+  działa wtedy na Twoim runnerze, a testy i publikacja zostają na
+  odizolowanych runnerach GitHub-hosted.
+- `DEBIAN13_TRUSTED_LOCAL_MODEL=1` — zgoda na lokalny URL
+  `http://127.0.0.1:11434/v1/chat/completions` (wyłącznie loopback
+  i port 11434). Poza tym trybem obowiązuje HTTPS.
+- `DEBIAN13_MODEL_NAME` — nazwa rzeczywiście pobranego modelu.
+
+W takim profilu repozytoryjny secret `DEBIAN13_MODEL_CHAT_URL`
+może zawierać powyższy lokalny adres, a `DEBIAN13_MODEL_API_KEY`
+może pozostać pusty — lokalna Ollama ignoruje niepusty symboliczny
+Bearer ustawiany przez klienta. **Nie wymaga to płatnego OpenAI API.**
+
+**Nie instaluj self-hosted runnera dla publicznego repozytorium bez
+przejrzenia zasad bezpieczeństwa GitHub.** Etap z modelem uruchamia
+kod z chronionej gałęzi `main`, nie kod przesłany w PR. Zapewnij
+izolację runnera od prywatnych danych i innych usług. Najlepiej
+utrzymuj osobny runner wyłącznie do tej automatyzacji.
+
+Alternatywą jest prywatna, uwierzytelniona brama HTTPS dostępna z
+GitHub-hosted runnera. **Nie publikuj niezabezpieczonego portu Ollamy
+11434 w internecie.**
 
 ## Jak uruchomić po scaleniu PR
 
