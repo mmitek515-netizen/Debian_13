@@ -48,6 +48,7 @@ TASK_DETAIL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")$")
 TASK_CANCEL_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/cancel$")
 SESSION_MESSAGES_PATH = re.compile(r"^/api/v1/sessions/(" + TASK_UUID + r")/messages$")
 TASK_DISPATCH_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/dispatch$")
+TASK_APPROVE_ANALYSIS_PATH = re.compile(r"^/api/v1/tasks/(" + TASK_UUID + r")/approve-analysis$")
 WORK_KINDS = frozenset({"development", "bugfix", "audit", "research"})
 
 PROFILES = {
@@ -631,8 +632,11 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     "status": "configured" if report["providerConfigured"] else "not_configured",
                     "inference": "unverified",
                 },
-                "task_state": "Brak uruchomionych workerów",
+                "task_state": ("Worker Ollama: heartbeat potwierdzony" if self.server.work_store.local_worker_status()["workerHeartbeatVerified"] else "Worker Ollama: niepotwierdzony"),
             })
+            return
+        if self.path == "/api/v1/ai-center/status":
+            self._send_json(200, self.server.work_store.local_worker_status())
             return
         if self.path == "/api/v1/codex/status":
             self._send_json(200, codex_status_report())
@@ -648,8 +652,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             ]})
             return
         if self.path == "/api/v1/tasks":
+            live = self.server.work_store.local_worker_status()["workerHeartbeatVerified"]
             self._send_json(200, {"tasks": self.server.work_store.list_tasks(),
-                                  "storage": "sqlite", "workersRunning": 0})
+                                  "storage": "sqlite", "workersRunning": int(live)})
             return
         if self.path == "/api/v1/events":
             self._send_json(200, {"events": self.server.work_store.list_events(),
@@ -680,8 +685,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(404, {"error": {"code": "task_not_found", "message": "Task not found."}})
             else:
                 self._send_json(200, {
-                    "task": task, "alexSubmission":
-                    self.server.work_store.get_alex_submission(task["id"])
+                    "task": task,
+                    "localAnalysis": self.server.work_store.result_for_task(task["id"]),
+                    "alexSubmission": self.server.work_store.get_alex_submission(task["id"])
                 })
             return
         self._send_json(404, {"error": {"code": "not_found", "requestId": str(uuid.uuid4())}})
@@ -695,6 +701,21 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         try:
             if self.path == "/mcp":
                 self._handle_mcp()
+                return
+            approve = TASK_APPROVE_ANALYSIS_PATH.fullmatch(self.path)
+            if approve:
+                if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
+                    self.close_connection = True
+                    raise ApiError(400, "unexpected_body", "Local analysis approval takes no request body.")
+                try:
+                    task = self.server.work_store.approve_local_analysis(approve.group(1))
+                except ValueError as exc:
+                    raise ApiError(409, "task_not_eligible", "Task cannot be approved for local analysis.") from exc
+                if task is None:
+                    raise ApiError(404, "task_not_found", "Task not found.")
+                self._send_json(202, {"task": task, "executionStarted": False,
+                                      "localWorkerHeartbeatVerified":
+                                        self.server.work_store.local_worker_status()["workerHeartbeatVerified"]})
                 return
             dispatch = TASK_DISPATCH_PATH.fullmatch(self.path)
             if dispatch:
