@@ -150,6 +150,9 @@ jobs:
             if ! kill -0 "$LAUNCH_PID" 2>/dev/null; then exit 1; fi
             sleep .2
           done
+          export DEBIAN13_SYSTEM_API_URL="http://127.0.0.1:$DEBIAN13_API_PORT"
+          export DEBIAN13_API_TOKEN="$(cat "$DEBIAN13_STATE_DIR/operator-token")"
+          python3 debian13/system/readiness.py
           python3 debian13/state_backup.py --workspace "$WORKSPACE_DIR" --output "$TMP_DIR/private-snapshot"
           python3 debian13/state_backup.py --verify "$TMP_DIR/private-snapshot"
           test "$(stat -c '%a' "$TMP_DIR/private-snapshot")" = "700"
