@@ -174,7 +174,7 @@ class Debian13ApiTests(unittest.TestCase):
             self.assertIn('event: delta\n', events)
             self.assertIn('"text": "Real test-provider response."', events)
             self.assertIn('event: done\n', events)
-            self.assertIn('"session_persisted": false', events)
+            self.assertIn('"session_persisted": true', events)
             self.assertEqual(provider.body["messages"][1]["content"], "Write tests")
         finally:
             provider.shutdown()
@@ -191,6 +191,8 @@ class Debian13ApiTests(unittest.TestCase):
                 "model_api_key": "fixture-provider-key",
                 "model_name": "fixture-text-model",
                 "vision_model_name": "llama3.2-vision:11b",
+                "ollama_vision_url": f"http://127.0.0.1:{provider.server_port}/v1/chat/completions",
+                "ollama_vision_model": "llama3.2-vision:11b",
             })
             photo = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"test-image-bytes").decode()
             status, result = self.request_json("POST", "/v1/vision", {
@@ -202,7 +204,8 @@ class Debian13ApiTests(unittest.TestCase):
             self.assertEqual(provider.body["model"], "llama3.2-vision:11b")
             segments = provider.body["messages"][1]["content"]
             self.assertEqual(segments[0]["text"], "Describe this image.")
-            self.assertTrue(segments[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+            self.assertTrue(segments[1]["image_url"].startswith("data:image/png;base64,"))
+            self.assertEqual(result["source"], "ollama")
             status, data = self.request_json("POST", "/v1/vision", {
                 "profile": "aria", "message": "Check",
                 "image": {"mime_type": "image/png", "base64": "%%bad-base64"},
