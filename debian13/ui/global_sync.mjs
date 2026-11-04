@@ -16,7 +16,7 @@ const SOURCES = Object.freeze([
 export async function readWorkspaceSources(client) {
   // allSettled guarantees that one unavailable integration doesn't mask others.
   // A reachable status endpoint does not prove its external provider is online.
-  const outcomes = await Promise.allSettled(SOURCES.map(([, method]) => {
+  const outcomes = await Promise.allSettled(SOURCES.map(async ([, method]) => {
     if (typeof client?.[method] !== 'function') {
       throw new Error('Endpoint not implemented');
     }
