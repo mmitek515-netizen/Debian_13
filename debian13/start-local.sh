@@ -55,6 +55,9 @@ import ast, sys
 root = Path(sys.argv[1])
 for path in [root / "system/server.py", root / "system/work_store.py",
              root / "system/alex_bridge.py", root / "system/alex_handoff.py",
+             root / "system/chat_memory.py", root / "system/codex_status.py",
+             root / "system/ai_center_worker.py", root / "system/mcp_autoconfigure.py",
+             root / "system/mcp_launcher.py",
              root / "ui/dev_server.py"]:
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 print("PASS: Python runtime, launch ports and application modules are valid.")
