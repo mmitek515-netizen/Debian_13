@@ -17,6 +17,7 @@ API_PATHS = {
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
     ("GET", "/api/v1/codex/status"),
+    ("GET", "/api/v1/ai-center/status"),
     ("GET", "/api/v1/integrations"),
     ("GET", "/api/v1/alex/capabilities"),
     ("GET", "/api/v1/tasks"),
@@ -32,6 +33,9 @@ API_TASK_PATH = re.compile(
 )
 API_TASK_CANCEL_PATH = re.compile(
     r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/cancel",
+)
+API_TASK_APPROVE_ANALYSIS_PATH = re.compile(
+    r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/approve-analysis",
 )
 API_TASK_DISPATCH_PATH = re.compile(
     r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/dispatch",
@@ -73,7 +77,7 @@ class UiHandler(SimpleHTTPRequestHandler):
         if (self.command, path) not in API_PATHS and not (
             self.command == "GET" and (API_SESSION_PATH.fullmatch(path) or API_TASK_PATH.fullmatch(path))
         ) and not (
-            self.command == "POST" and (API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path))
+            self.command == "POST" and (API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path) or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path))
         ):
             self._send_error_json(404, "Nie znaleziono endpointu API.")
             return
@@ -84,7 +88,7 @@ class UiHandler(SimpleHTTPRequestHandler):
                 self._send_error_json(400, "Kodowanie transferu nie jest obsługiwane.")
                 return
             raw_length = self.headers.get("Content-Length", "")
-            if API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path):
+            if API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path) or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path):
                 if raw_length not in ("", "0"):
                     self._send_error_json(400, "Anulowanie zadania nie przyjmuje treści.")
                     return
