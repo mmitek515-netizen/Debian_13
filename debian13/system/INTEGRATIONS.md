@@ -46,8 +46,14 @@ docker compose -f compose.yaml exec -T debian13-system \
   python3 /opt/debian13/system/mcp_server.py
 ```
 
-This is a stdio MCP bridge, not an independently exposed remote HTTP MCP
-server. It cannot reach GitHub unless separate tools are safely added.
+The stdio server remains available for local clients. An optional
+**loopback-only** HTTP wrapper is now provided in `mcp_http_gateway.py`
+with documented setup and exact security constraints in
+[`MCP_HTTP_GATEWAY.md`](MCP_HTTP_GATEWAY.md). This wrapper is **not** a
+publicly deployed HTTPS server, OAuth identity provider or active ChatGPT
+connection; it does not execute tasks or reach GitHub automatically.
+It implements stateless Streamable HTTP with 2025-11-25 compatibility;
+the 2026-07-28 protocol and client compatibility must be tested separately.
 
 ## 2. GPT Actions — authenticated API
 
