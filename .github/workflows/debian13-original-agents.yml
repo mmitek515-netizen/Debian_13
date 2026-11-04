@@ -75,7 +75,7 @@ jobs:
           if len(matching)==1:
               print(matching[0])
           else:
-              m=re.match(r'^\\[(alex|aria|astyria|aurelius)\\]', issue['title'].lower())
+              m=re.match(r'^\[(alex|aria|astyria|aurelius)\]', issue['title'].lower())
               if not m: raise SystemExit('Add one agent:* label or prefix the title [Alex]/[Aria]/[Astyria]/[Aurelius].')
               print(m.group(1))
           PY
