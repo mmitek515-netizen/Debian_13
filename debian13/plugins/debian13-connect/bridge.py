@@ -11,10 +11,17 @@ import os
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, Request, ProxyHandler, build_opener
 
 MAX_INPUT = 65536
 MAX_OUTPUT = 262144
+
+
+class NoRedirect(HTTPRedirectHandler):
+    """Never allow localhost MCP to redirect a bearer token elsewhere."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def operator_token() -> str:
@@ -49,7 +56,7 @@ def forward(request: dict) -> dict | None:
             "MCP-Protocol-Version": "2025-11-25",
         },
     )
-    with build_opener(ProxyHandler({})).open(upstream, timeout=12) as reply:
+    with build_opener(ProxyHandler({}), NoRedirect()).open(upstream, timeout=12) as reply:
         if reply.status == 202:
             return None
         if reply.status != 200:
