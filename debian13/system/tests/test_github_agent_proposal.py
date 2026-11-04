@@ -88,7 +88,7 @@ class GitHubAgentProposalTests(unittest.TestCase):
         workflow = (Path(__file__).resolve().parents[3] /
                     ".github/workflows/debian13-original-agents.yml")
         source = workflow.read_text(encoding="utf-8")
-        found = re.search(r"m=re\.match\(r'([^']+)', source)
+        found = re.search(r"m=re\.match\(r'([^']+)'", source)
         self.assertIsNotNone(found, "Agent prefix expression must exist.")
         pattern = re.compile(found.group(1))
         for name in agent.AGENTS:
