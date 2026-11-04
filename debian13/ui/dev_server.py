@@ -110,7 +110,13 @@ class UiHandler(SimpleHTTPRequestHandler):
             if not 1 <= api_port <= 65535:
                 raise ValueError("Invalid API port")
             timeout = MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision") else 5
-            connection = http.client.HTTPConnection("127.0.0.1", api_port, timeout=timeout)
+            api_host = os.environ.get("DEBIAN13_API_HOST", "127.0.0.1")
+            if api_host not in ("127.0.0.1", "localhost") and not (
+                api_host == "debian13-system"
+                and os.environ.get("DEBIAN13_ALLOW_INTERNAL_API") == "1"
+            ):
+                raise ValueError("Untrusted internal API hostname")
+            connection = http.client.HTTPConnection(api_host, api_port, timeout=timeout)
             headers = {}
             token = os.environ.get("DEBIAN13_API_TOKEN", "")
             if token:
@@ -191,8 +197,13 @@ def main() -> None:
     port = int(os.environ.get("DEBIAN13_UI_PORT", "4174"))
     if not 1 <= port <= 65535:
         raise ValueError("Invalid UI port")
-    server = ThreadingHTTPServer(("127.0.0.1", port), UiHandler)
-    print(f"Debian 13 UI listening on http://127.0.0.1:{port} (API proxy to loopback)")
+    host = os.environ.get("DEBIAN13_UI_HOST", "127.0.0.1")
+    if host != "127.0.0.1" and not (
+        host == "0.0.0.0" and os.environ.get("DEBIAN13_ALLOW_INTERNAL_API") == "1"
+    ):
+        raise ValueError("Unsafe UI binding: use private Docker port exposure")
+    server = ThreadingHTTPServer((host, port), UiHandler)
+    print(f"Debian 13 UI listening on {host}:{port} (trusted internal API proxy only)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
