@@ -243,6 +243,10 @@ function renderRuntimeStatus(status) {
   setText('application-status', application);
   setText('os-status', `${distribution} · ${boot}`);
   setText('model-status', modelStatusLabel(status.model));
+  const svl = status.svl;
+  setText('svl-status', svl?.stateValid === true
+    ? `${svl.version ?? 'wersja nieznana'} · ${svl.storePresent ? 'stan z pliku' : 'ustawienia domyślne'} · ${svl.chatHistoryEntries ?? 0} wiadomości · bez potwierdzenia startu OS`
+    : 'Silnik SVL niedostępny lub nieprawidłowy · OS nieuruchomiony');
   setText('task-storage-status', status.task_state ?? 'Stan pamięci zadań nieznany');
   setText('status-error', '');
   connectionState('connected', 'API dostępne');
@@ -596,14 +600,14 @@ let activeChatCancelMessage = '';
 async function loadStatus() {
   connectionState('loading', 'Ładowanie statusu…');
   setText('status-error', '');
-  for (const id of ['application-status', 'os-status', 'model-status', 'task-storage-status']) {
+  for (const id of ['application-status', 'os-status', 'model-status', 'task-storage-status', 'svl-status']) {
     setText(id, 'Ładowanie…');
   }
   try {
     renderRuntimeStatus(await api.getStatus());
   } catch (error) {
     connectionState('error', error.status === 401 ? 'Wymagana autoryzacja' : 'Runtime niedostępny');
-    for (const id of ['application-status', 'os-status', 'model-status', 'task-storage-status']) {
+    for (const id of ['application-status', 'os-status', 'model-status', 'task-storage-status', 'svl-status']) {
       setText(id, 'Niedostępny');
     }
     setText('status-error', error.message);
