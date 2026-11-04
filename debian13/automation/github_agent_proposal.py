@@ -84,10 +84,10 @@ def allowed_path(name: object) -> bool:
     if path.is_absolute() or ".." in path.parts or "." in path.parts or any(
         part.startswith(".") for part in path.parts):
         return False
-    if len(path.parts) < 3 or path.parts[0] != "debian13":
-        return False
     if name == "debian13/README.md":
         return True
+    if len(path.parts) < 3 or path.parts[0] != "debian13":
+        return False
     if path.parts[1] == "system":
         return ((len(path.parts) == 3 and path.name.endswith(".py"))
                 or (len(path.parts) == 4 and path.parts[2] == "tests"
