@@ -23,6 +23,34 @@ this gateway needs to be upgraded after a real client compatibility test.
 
 ## Run locally (Python, no external service)
 
+### Simplest option: one-command opt-in
+
+From the repository root:
+
+```sh
+DEBIAN13_ENABLE_MCP_HTTP=1 bash debian13/start-local.sh
+```
+
+This launches the existing API, GUI and the separate private MCP gateway.
+The launcher automatically creates a **different** 48-byte random Bearer
+credential for MCP in the state directory (default
+`~/.local/state/debian13/mcp-gateway-token`, mode 0600). It reuses this
+credential after restarting the app and terminates the gateway when the
+launcher stops. The gateway is *disabled by default*, and neither the
+secret nor local API token is printed in the console.
+
+To configure a client on **the same trusted host**, retrieve the gateway
+token from the private file into the client's secret store. Never paste
+that token into issues or commit it. Read the token only as the host
+operator; do not expose this local port on GitHub Codespaces.
+
+To select a different local port, set
+`DEBIAN13_MCP_GATEWAY_PORT` to an unused port between 1024 and 65535.
+The gateway's port must differ from the GUI and API ports. This option
+does not configure a TLS reverse proxy, OAuth or ChatGPT remote access.
+
+### Manual option: two terminals
+
 Start the existing app in terminal A:
 
 ```sh
@@ -45,8 +73,8 @@ Keep the `DEBIAN13_MCP_GATEWAY_TOKEN` in the client/host secret store; losing
 it after restarting the shell invalidates old client credentials. In
 production use a persistent managed secret. Gateway and API tokens must differ.
 
-The Python entry point does not expose a public listener. It does not ask
-the server to download an Ollama model or consume a paid API request.
+Both startup modes use only a loopback listener. Neither asks the
+server to download an Ollama model or consume a paid API request.
 
 ### Basic authenticated HTTP test
 
