@@ -262,3 +262,24 @@ test('original Alex capability and explicit operator handoff stay behind tokeniz
   assert.equal(blocked.status, 400);
   assert.equal(upstream.requests.length, 2, 'invalid dispatch must not reach API');
 });
+
+test('SVL commands are proxied only on the authenticated, allowlisted route', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'svl-proxy-test-token');
+  const result = await fetch(`${base}/api/v1/svl/command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer browser-ignored' },
+    body: JSON.stringify({ command: 'metryka -inf inf' }),
+  });
+  assert.equal(result.status, 200);
+  assert.equal((await result.json()).path, '/api/v1/svl/command');
+  assert.equal(upstream.requests[0].authorization, 'Bearer svl-proxy-test-token');
+  assert.deepEqual(JSON.parse(upstream.requests[0].body), { command: 'metryka -inf inf' });
+  const disallowed = await fetch(`${base}/api/v1/svl/execute`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command: 'status' }),
+  });
+  assert.equal(disallowed.status, 404);
+  assert.equal(upstream.requests.length, 1);
+});
