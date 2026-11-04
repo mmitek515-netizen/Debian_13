@@ -23,6 +23,7 @@ API_PATHS = {
     ("GET", "/api/v1/ai-center/status"),
     ("GET", "/api/v1/integrations"),
     ("GET", "/api/v1/integration-progress"),
+    ("GET", "/api/v1/svl/status"),
     ("GET", "/api/v1/alex/capabilities"),
     ("GET", "/api/v1/tasks"),
     ("POST", "/api/v1/tasks"),
