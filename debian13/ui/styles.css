@@ -1505,3 +1505,18 @@ body {
   .github-grid { grid-template-columns: 1fr; }
   .sync-details { font-size: 11px; }
 }
+
+.original-ai-result {
+  max-width: 100%;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #081321;
+  border-radius: 9px;
+  color: #e7f5fc;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow-y: auto;
+}
