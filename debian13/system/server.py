@@ -6,6 +6,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
+import http.client
 import http.server
 import json
 import os
@@ -24,6 +25,7 @@ import uuid
 from pathlib import Path
 
 from work_store import WorkStore
+import mcp_server
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 
@@ -459,7 +461,59 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             raise ApiError(400, "invalid_json", "Request body must be a JSON object.")
         return data
 
+
+    def _mcp_read_local(self, path: str) -> dict:
+        # Read the same authenticated API via localhost, never a supplied URL.
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=5)
+        try:
+            conn.request("GET", path, headers={
+                "Authorization": "Bearer " + self.server.config["api_token"],
+                "Accept": "application/json",
+            })
+            reply = conn.getresponse()
+            raw = reply.read(mcp_server.MAX_RESPONSE + 1)
+            if reply.status != 200 or len(raw) > mcp_server.MAX_RESPONSE:
+                raise ValueError("Local API unavailable")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError("Invalid local API response")
+            return data
+        finally:
+            conn.close()
+
+    def _handle_mcp(self) -> None:
+        # Stateless MCP HTTP/JSON transport. Local bind is the safe default.
+        origin = self.headers.get("Origin")
+        allowed = {item.strip() for item in
+                   os.environ.get("DEBIAN13_MCP_ALLOWED_ORIGINS", "").split(",")
+                   if item.strip()}
+        if origin and origin not in allowed:
+            self._send_json(403, {"error": "MCP Origin not allowed"})
+            return
+        content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip()
+        if content_type != "application/json":
+            self._send_json(415, {"error": "MCP requires application/json"})
+            return
+        request = self._read_json(65536)
+        if request.get("jsonrpc") != "2.0":
+            self._send_json(400, {"jsonrpc": "2.0", "id": request.get("id"),
+                                  "error": {"code": -32600, "message": "Invalid Request"}})
+            return
+        result = mcp_server.response(request, api_reader=self._mcp_read_local)
+        if result is None:
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("MCP-Protocol-Version", mcp_server.PROTOCOL_VERSION)
+            self.end_headers()
+        else:
+            self._send_json(200, result,
+                            {"MCP-Protocol-Version": mcp_server.PROTOCOL_VERSION})
+
     def do_GET(self) -> None:
+        if self.path == "/mcp":
+            self._send_json(405, {"error": "Use MCP POST transport"}, {"Allow": "POST"})
+            return
         if self.path == "/healthz":
             self._send_json(200, {"status": "ok"})
             return
@@ -554,6 +608,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
             return
         request_id = str(uuid.uuid4())
         try:
+            if self.path == "/mcp":
+                self._handle_mcp()
+                return
             dispatch = TASK_DISPATCH_PATH.fullmatch(self.path)
             if dispatch:
                 if self.headers.get("Content-Length", "0") not in ("", "0") or self.headers.get("Transfer-Encoding"):
