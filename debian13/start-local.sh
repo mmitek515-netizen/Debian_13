@@ -58,7 +58,8 @@ root = Path(sys.argv[1])
 for path in [root / "system/server.py", root / "system/work_store.py",
              root / "system/alex_bridge.py", root / "system/alex_handoff.py",
              root / "ui/dev_server.py", root / "system/mcp_server.py",
-             root / "system/mcp_http_gateway.py"]:
+             root / "system/mcp_http_gateway.py",
+             root / "system/mcp_preflight.py"]:
     ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 print("PASS: Python runtime, launch ports and application modules are valid.")
 PY
