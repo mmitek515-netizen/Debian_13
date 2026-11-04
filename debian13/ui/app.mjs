@@ -1,8 +1,8 @@
 export const AGENT_PROFILES = Object.freeze([
-  { id: 'aria', name: 'Aria', role: 'Modele i transport AI' },
-  { id: 'astyria', name: 'Astyria', role: 'Interfejs i ergonomia' },
-  { id: 'aurelius', name: 'Aurelius', role: 'Bezpieczeństwo i testy' },
-  { id: 'alex', name: 'Alex', role: 'Architektura i integracja' },
+  { id: 'aria', name: 'Aria' },
+  { id: 'astyria', name: 'Astyria' },
+  { id: 'aurelius', name: 'Aurelius' },
+  { id: 'alex', name: 'Alex' },
 ]);
 
 const SESSION_KEY = 'debian13-chat-session';
@@ -145,9 +145,11 @@ export function getInitialAgentStatuses() {
 }
 
 function agentStatusLabel(agent) {
-  const profile = agent.status === 'profile_configured'
-    ? 'Profil skonfigurowany'
-    : 'Profil: stan nieznany';
+  const profile = agent.status === 'unassigned'
+    ? 'Bez przydziału — oczekuje na polecenie właściciela'
+    : agent.status === 'profile_configured'
+      ? 'Profil dostępny — zadania nieprzydzielone'
+      : 'Profil: stan nieznany';
   const worker = agent.worker === 'not_running'
     ? 'Worker nieuruchomiony'
     : agent.worker === 'running'
@@ -175,7 +177,7 @@ function renderAgentProfiles(list, agents = getInitialAgentStatuses()) {
 
     const role = document.createElement('p');
     role.className = 'agent-role';
-    role.textContent = agent.role;
+    role.textContent = agent.role || 'Rola: nieprzydzielona';
     const labels = agentStatusLabel(agent);
     const profile = document.createElement('p');
     profile.className = 'agent-state';
@@ -493,7 +495,7 @@ async function loadOriginalAgents() {
       heading.textContent = agent.name;
       const role = document.createElement('p');
       role.className = 'agent-role';
-      role.textContent = agent.role;
+      role.textContent = agent.role || 'Rola: nieprzydzielona';
       const status = document.createElement('p');
       status.className = 'agent-state';
       status.textContent = agent.workerVerified === true
