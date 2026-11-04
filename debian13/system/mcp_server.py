@@ -67,7 +67,7 @@ def read_api(path: str) -> dict:
     return result
 
 
-def response(request: dict) -> dict | None:
+def response(request: dict, *, api_reader=None, alex_reader=None) -> dict | None:
     request_id = request.get("id")
     method = request.get("method")
     if not isinstance(method, str):
@@ -102,8 +102,8 @@ def response(request: dict) -> dict | None:
             return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32602, "message": "No tool arguments are supported"}}
         try:
             path = TOOLS[params["name"]][1]
-            value = (read_existing_alex(params["name"])
-                     if path.startswith("alex:") else read_api(path))
+            value = ((alex_reader or read_existing_alex)(params["name"])
+                     if path.startswith("alex:") else (api_reader or read_api)(path))
             result = {"content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}], "isError": False}
         except (ValueError, OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
             # Do not echo URLs, bearer credentials, response bodies, or internals.
