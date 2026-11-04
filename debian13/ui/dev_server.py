@@ -22,6 +22,7 @@ API_PATHS = {
     ("GET", "/api/v1/codex/status"),
     ("GET", "/api/v1/ai-center/status"),
     ("GET", "/api/v1/integrations"),
+    ("GET", "/api/v1/integration-progress"),
     ("GET", "/api/v1/alex/capabilities"),
     ("GET", "/api/v1/tasks"),
     ("POST", "/api/v1/tasks"),
@@ -132,7 +133,8 @@ class UiHandler(SimpleHTTPRequestHandler):
             if not 1 <= api_port <= 65535:
                 raise ValueError("Invalid API port")
             timeout = (MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision")
-                       else 15 if (path == "/api/v1/github/status"
+                       else 15 if (path == "/api/v1/integration-progress"
+                                   or path == "/api/v1/github/status"
                                    or path == "/api/v1/original-agents/review-capabilities"
                                    or API_ORIGINAL_HANDOFF_PATH.fullmatch(path)
                                    or API_ORIGINAL_STATUS_PATH.fullmatch(path))
