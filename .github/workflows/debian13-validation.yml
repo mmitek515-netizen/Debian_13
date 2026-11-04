@@ -102,6 +102,15 @@ jobs:
           assert {x["name"] for x in data["agents"]} == {"Alex","Aria","Astyria","Aurelius"}
           assert not data["registryReachable"]
           assert all(not x["workerVerified"] and not x["connected"] for x in data["agents"])
+          svl_request = urllib.request.Request(
+              base + "/api/v1/svl/command",
+              data=json.dumps({"command": "metryka -inf inf"}).encode(),
+              headers={"Content-Type": "application/json"}, method="POST")
+          with urllib.request.urlopen(svl_request, timeout=3) as reply:
+              svl_response = json.load(reply)
+          assert svl_response["processor"] == "SVL"
+          assert svl_response["execution"] == "read_only"
+          assert svl_response["result"]["metricC"] == 2.5
           payload = json.dumps({"agent":"alex","kind":"development",
               "title":"Start script smoke task", "description":"Persist a task without AI execution."}).encode()
           request = urllib.request.Request(base+"/api/v1/tasks", data=payload,
@@ -195,4 +204,10 @@ jobs:
           status=$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/v1/diagnostics)
           test "$status" = "401"
           curl --fail --silent --show-error -H "Authorization: Bearer $DEBIAN13_API_TOKEN" http://127.0.0.1:8080/v1/profiles >/dev/null
+          svl_output=$(curl --fail --silent --show-error \
+            -H "Authorization: Bearer $DEBIAN13_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"command":"metryka -inf inf"}' \
+            http://127.0.0.1:8080/api/v1/svl/command)
+          SVL_RESULT="$svl_output" python3 -c 'import os,json; r=json.loads(os.environ["SVL_RESULT"]); assert r["processor"] == "SVL" and r["execution"] == "read_only" and r["result"]["metricC"] == 2.5'
           docker compose -f debian13/system/compose.yaml exec -T debian13-system python3 /opt/debian13/system/integration_smoke.py
