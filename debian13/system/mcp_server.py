@@ -20,6 +20,8 @@ TOOLS = {
     "debian13_profiles": ("List configured AI profiles and their real active flags.", "/v1/profiles"),
     "debian13_diagnostics": ("Read authenticated runtime diagnostics; no secrets.", "/v1/diagnostics"),
     "debian13_integrations": ("Read the actual integration configuration status.", "/v1/integrations"),
+    "debian13_ai_center": ("Read genuine local Ollama worker heartbeat and queue counters; no command execution.", "/api/v1/ai-center/status"),
+    "debian13_codex_status": ("Read separate Codex CLI detection and login state on the API host.", "/api/v1/codex/status"),
     "debian13_work_tasks": ("Read persistent review-only Work task queue; no task execution.", "/api/v1/tasks"),
     "debian13_original_agents": ("Check connection status of four original owner agents; profiles do not prove active AI.", "/api/v1/original-agents"),
     "alex_existing_status": (
