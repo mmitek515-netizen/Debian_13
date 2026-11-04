@@ -51,6 +51,9 @@
             <button class="nav-button" type="button" data-view="work" aria-label="Work">
               <span class="nav-icon" aria-hidden="true">▤</span><span class="nav-label">Work</span>
             </button>
+            <button class="nav-button" type="button" data-view="ai-center" aria-label="Centrum AI 24/7">
+              <span class="nav-icon" aria-hidden="true">◈</span><span class="nav-label">Centrum AI 24/7</span>
+            </button>
             <button class="nav-button" type="button" data-view="codex" aria-label="Centrum Programowania Codex">
               <span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">Codex · programowanie</span>
             </button>
@@ -156,9 +159,10 @@
               Work połączy się z API po otwarciu widoku.
             </p>
             <p class="work-limit-note">
-              Zadania są trwale zapisywane w API do przeglądu. Wysłanie zadania
-              NIE uruchamia agenta AI, nie wykonuje kodu i nie zatwierdza zakupów.
-              Każdy etap wykonania wymaga osobnego, rzeczywiście działającego workera.
+              Zadania są trwale zapisywane w API do przeglądu. Wybranie opcji
+              „Zatwierdź analizę Ollama” kieruje je do niezależnego workera,
+              gdy działa serwer. Worker generuje raport do wglądu, ale nie
+              wykonuje kodu, nie zatwierdza zakupów ani nie łączy PR.
             </p>
             <form id="work-create-form" class="work-task-form" aria-labelledby="work-create-title">
               <h3 id="work-create-title">Dodaj zadanie do kolejki</h3>
@@ -242,6 +246,46 @@
                 <button id="terminal-submit" type="submit" class="button button-secondary">Uruchom</button>
               </div>
             </form>
+          </section>
+
+          <section id="ai-center-view" class="workspace-view settings-view ai-center-view" aria-labelledby="ai-center-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">NIEZALEŻNY SERWER DEBIAN 13</p>
+                <h2 id="ai-center-title">Centrum AI 24/7</h2>
+              </div>
+              <button id="ai-center-refresh" class="button button-secondary" type="button">Odśwież status</button>
+            </div>
+            <p class="work-limit-note">System działa niezależnie od telefonu i ChatGPT, gdy serwer oraz kontenery pozostają uruchomione. Codespaces może być usypiany i nie jest gwarantowaną usługą 24/7.</p>
+            <div class="ai-center-diagram" aria-label="Architektura centrum AI">
+              <div class="ai-center-step"><strong>Telefon / ChatGPT</strong><span>Wydajesz polecenia i sprawdzasz zadania</span></div>
+              <div class="ai-center-arrow" aria-hidden="true">⇅</div>
+              <div class="ai-center-step ai-center-step-highlight"><strong>MCP + prywatne API + panel WWW</strong><span>Bezpieczna komunikacja — zdalny dostęp wymaga HTTPS i autoryzacji</span></div>
+              <div class="ai-center-arrow" aria-hidden="true">⇅</div>
+              <div class="ai-center-step">
+                <div class="ai-center-heading">
+                  <strong>Debian 13 — Centrum AI</strong>
+                  <span id="ai-center-worker-badge" class="ai-center-badge">Nie zweryfikowano</span>
+                </div>
+                <div class="ai-center-agents">
+                  <div><strong>Alex</strong><span>Architektura i kod</span></div>
+                  <div><strong>Aria</strong><span>Komunikacja AI</span></div>
+                  <div><strong>Astyria</strong><span>Interfejs i diagnostyka</span></div>
+                  <div><strong>Aurelius</strong><span>Testy i bezpieczeństwo</span></div>
+                </div>
+                <p class="work-limit-note">To profile do przydzielania zadań. Statusy oryginalnych, zewnętrznych agentów są w diagnostyce; lokalny worker Ollamy nie jest ich zamiennikiem.</p>
+                <div class="ai-center-chips"><span>Ollama</span><span>GitHub</span><span>Terminal</span><span>Workery</span><span>Historia</span></div>
+              </div>
+            </div>
+            <dl class="runtime-grid" aria-live="polite">
+              <div><dt>Worker lokalny</dt><dd id="ai-center-worker-status">Oczekiwanie na API</dd></div>
+              <div><dt>Ostatni heartbeat</dt><dd id="ai-center-worker-age">Brak informacji</dd></div>
+              <div><dt>Model workerów</dt><dd id="ai-center-model">Brak informacji</dd></div>
+              <div><dt>Kolejka Ollamy</dt><dd id="ai-center-queue">Nie odczytano</dd></div>
+            </dl>
+            <p id="ai-center-error" class="status-error" role="status" aria-live="polite"></p>
+            <p class="work-limit-note">Worker po zaakceptowaniu zadania generuje raport i zapisuje go w SQLite. Nie wykonuje automatycznie poleceń systemowych ani nie modyfikuje repozytorium. Codex ma własną zakładkę do programowania; ChatGPT Work jest opcjonalne i nie jest wymagane.</p>
+            <button type="button" class="button button-secondary" data-view="work">Przejdź do kolejki zadań</button>
           </section>
 
           <section id="codex-view" class="workspace-view settings-view codex-view" aria-labelledby="codex-title" hidden>
