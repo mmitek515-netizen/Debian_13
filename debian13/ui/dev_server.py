@@ -16,6 +16,7 @@ API_PATHS = {
     ("GET", "/api/v1/status"),
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
+    ("GET", "/api/v1/github/status"),
     ("GET", "/api/v1/codex/status"),
     ("GET", "/api/v1/ai-center/status"),
     ("GET", "/api/v1/integrations"),
@@ -109,7 +110,7 @@ class UiHandler(SimpleHTTPRequestHandler):
             api_port = int(os.environ.get("DEBIAN13_API_PORT", "8765"))
             if not 1 <= api_port <= 65535:
                 raise ValueError("Invalid API port")
-            timeout = MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision") else 5
+            timeout = MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision") else (15 if path == "/api/v1/github/status" else 5)
             api_host = os.environ.get("DEBIAN13_API_HOST", "127.0.0.1")
             if api_host not in ("127.0.0.1", "localhost") and not (
                 api_host == "debian13-system"
