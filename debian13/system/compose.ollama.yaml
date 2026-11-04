@@ -49,6 +49,35 @@ services:
       DEBIAN13_ALLOW_INTERNAL_OLLAMA: "1"
       OLLAMA_VISION_URL: http://ollama:11434/v1/chat/completions
       OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
+  debian13-ui:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ui
+    image: debian13-ui:local
+    init: true
+    user: "10002:10002"
+    restart: unless-stopped
+    depends_on:
+      - debian13-system
+    environment:
+      DEBIAN13_API_HOST: debian13-system
+      DEBIAN13_API_PORT: "8080"
+      DEBIAN13_UI_PORT: "3000"
+      DEBIAN13_UI_HOST: "0.0.0.0"
+      DEBIAN13_ALLOW_INTERNAL_API: "1"
+      DEBIAN13_API_TOKEN: "${DEBIAN13_API_TOKEN:?Set a private operator token}"
+    ports:
+      - "127.0.0.1:${DEBIAN13_UI_PORT:-3000}:3000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
   debian13-ai-worker:
     build:
       context: .
