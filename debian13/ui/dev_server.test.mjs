@@ -302,3 +302,21 @@ test('local Ollama approval route is authenticated, bodyless, and cannot execute
   assert.equal(denied.status, 400);
   assert.equal(upstream.requests.length, 2, 'local Ollama approval route must reject bodies');
 });
+
+test('integration progress is read-only and uses only the server-side token', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'integration-progress-test-operator-token');
+  const response = await fetch(`${base}/api/v1/integration-progress`, {
+    headers: {Authorization: 'Bearer untrusted-browser-credential'},
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {ok: true, path: '/api/v1/integration-progress'});
+  assert.equal(upstream.requests.length, 1);
+  assert.equal(upstream.requests[0].authorization,
+               'Bearer integration-progress-test-operator-token');
+  const denied = await fetch(`${base}/api/v1/integration-progress`, {
+    method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}',
+  });
+  assert.equal(denied.status, 404);
+  assert.equal(upstream.requests.length, 1, 'POST must never reach the runtime');
+});
