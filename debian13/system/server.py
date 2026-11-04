@@ -26,6 +26,7 @@ from pathlib import Path
 
 from work_store import WorkStore
 from github_dashboard import DashboardCache, GitHubUnavailable
+from ui_sync import SyncStore, SyncValidationError, parse_title_command
 from chat_memory import ChatMemory
 import mcp_server
 from codex_status import report as codex_status_report
@@ -412,6 +413,7 @@ class Debian13Server(http.server.ThreadingHTTPServer):
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.work_store = WorkStore(self.workspace)
         self.github_dashboard = DashboardCache()
+        self.ui_sync = SyncStore(self.workspace)
         self.chat_memory = ChatMemory(self.workspace)
         self._alex_dispatch_lock = threading.Lock()
         self._rates: dict[str, tuple[float, int]] = {}
@@ -439,16 +441,23 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_chat_events(self, content: str, profile: str, model: str, session_id: str) -> None:
+    def _send_chat_events(self, content: str, profile: str, model: str,
+                          session_id: str, source_override: str | None = None,
+                          ui_revision: int | None = None) -> None:
         # A complete provider reply is delivered in one SSE delta (not token streaming).
-        source = "ollama" if is_ollama_endpoint(
-            self.server.config["model_chat_url"]) else "model_provider"
+        # Operator slash commands use the same transport but are NOT AI inference.
+        source = source_override or (
+            "ollama" if is_ollama_endpoint(self.server.config["model_chat_url"])
+            else "model_provider")
         frames = [
             ("meta", {"model": model, "session_id": session_id, "session_persisted": True}),
             ("delta", {"text": content}),
-            ("done", {"agent": profile, "source": source, "model": model,
-                      "session_id": session_id}),
         ]
+        if ui_revision is not None:
+            frames.append(("ui_update", {"revision": ui_revision,
+                                         "source": "operator_command"}))
+        frames.append(("done", {"agent": profile, "source": source, "model": model,
+                                "session_id": session_id}))
         body = "".join(
             "event: " + event + "\n" +
             "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
@@ -626,6 +635,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/v1/codex/status":
             self._send_json(200, codex_status_report())
             return
+        if self.path == "/api/v1/sync/state":
+            self._send_json(200, self.server.ui_sync.snapshot())
+            return
         if self.path == "/api/v1/github/status":
             try:
                 snapshot = self.server.github_dashboard.get()
@@ -790,6 +802,31 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                     if not self.server.chat_memory.exists(session_id):
                         raise ApiError(404, "session_not_found", "Session not found.")
                 clean_message = message.strip()
+                if image is None:
+                    try:
+                        new_title = parse_title_command(clean_message)
+                        if new_title is not None:
+                            synced = self.server.ui_sync.set_title(new_title)
+                            content = ("Zapisano tytuł interfejsu: " + synced["title"]
+                                       + ". Zmiana zostanie zsynchronizowana we "
+                                       "wszystkich otwartych panelach. "
+                                       "To polecenie systemowe, nie odpowiedź modelu AI.")
+                            session_id = self.server.chat_memory.save_exchange(
+                                session_id, profile, clean_message, content, "system_command")
+                            if self.path == "/api/v1/chat/stream":
+                                self._send_chat_events(
+                                    content, profile, "none", session_id,
+                                    source_override="system_command",
+                                    ui_revision=synced["revision"])
+                            else:
+                                self._send_json(200, {
+                                    "requestId": request_id, "profile": profile,
+                                    "content": content, "model": None,
+                                    "source": "system_command", "sessionId": session_id,
+                                    "uiRevision": synced["revision"]})
+                            return
+                    except SyncValidationError as exc:
+                        raise ApiError(400, "invalid_ui_command", str(exc)) from exc
                 history = self.server.chat_memory.context(session_id)
                 notes = self.server.chat_memory.notes()
                 if image is not None:
