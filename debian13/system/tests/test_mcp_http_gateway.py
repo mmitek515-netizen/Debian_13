@@ -160,23 +160,39 @@ class MCPHTTPGatewayTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(result["error"]["code"], -32602)
 
-    def test_duplicate_auth_headers_are_rejected(self):
+    def test_duplicate_security_headers_are_rejected(self):
         payload = b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-        connection = http.client.HTTPConnection(
-            "127.0.0.1", self.gateway.server_port, timeout=4)
-        try:
-            connection.putrequest("POST", "/mcp")
-            connection.putheader("Content-Type", "application/json")
-            connection.putheader("Accept", ACCEPT)
-            connection.putheader("Content-Length", str(len(payload)))
-            connection.putheader("Authorization", "Bearer " + GATEWAY_TOKEN)
-            connection.putheader("Authorization", "Bearer " + GATEWAY_TOKEN)
-            connection.endheaders(payload)
-            response = connection.getresponse()
-            self.assertEqual(response.status, 400)
-            response.read()
-        finally:
-            connection.close()
+        headers = {
+            "Host": "127.0.0.1:" + str(self.gateway.server_port),
+            "Authorization": "Bearer " + GATEWAY_TOKEN,
+            "Origin": "https://chatgpt.com",
+            "Content-Type": "application/json",
+            "Accept": ACCEPT,
+            "MCP-Protocol-Version": mcp_server.PROTOCOL_VERSION,
+            "Content-Length": str(len(payload)),
+        }
+        for name in headers:
+            with self.subTest(duplicate_header=name):
+                connection = http.client.HTTPConnection(
+                    "127.0.0.1", self.gateway.server_port, timeout=4)
+                try:
+                    connection.putrequest("POST", "/mcp", skip_host=True)
+                    for key, value in headers.items():
+                        connection.putheader(key, value)
+                    connection.putheader(name, headers[name])
+                    connection.endheaders(payload)
+                    response = connection.getresponse()
+                    self.assertEqual(response.status, 400)
+                    response.read()
+                finally:
+                    connection.close()
+
+        # Malformed headers must not stop later authorized requests.
+        status, result, _ = self.request({
+            "jsonrpc": "2.0", "id": 2, "method": "tools/list",
+        })
+        self.assertEqual(status, 200)
+        self.assertIn("tools", result["result"])
 
     def test_startup_rejects_insecure_bindings_and_bad_origins(self):
         with self.assertRaises(ValueError):
