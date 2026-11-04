@@ -32,8 +32,12 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def model_endpoint(raw: str) -> str:
     try:
         u = urllib.parse.urlsplit(raw)
-        if (u.scheme != "https" or not u.hostname or u.username or u.password
-                or u.query or u.fragment or u.path.rstrip("/") not in
+        localhost = (u.scheme == "http" and u.hostname in
+                     ("127.0.0.1", "localhost", "::1") and u.port == 11434
+                     and os.environ.get("DEBIAN13_TRUSTED_LOCAL_MODEL") == "1")
+        if ((u.scheme != "https" and not localhost) or not u.hostname
+                or u.username or u.password or u.query or u.fragment
+                or u.path.rstrip("/") not in
                 ("/v1/chat/completions", "/chat/completions")):
             raise ValueError()
     except (TypeError, ValueError):
@@ -43,6 +47,10 @@ def model_endpoint(raw: str) -> str:
 def provider_request(system: str, user: str) -> dict:
     url = model_endpoint(os.environ.get("DEBIAN13_MODEL_CHAT_URL", ""))
     key = os.environ.get("DEBIAN13_MODEL_API_KEY", "")
+    if (url.startswith("http://") and
+            os.environ.get("DEBIAN13_TRUSTED_LOCAL_MODEL") == "1"):
+        # Ollama's loopback OpenAI-compatible interface ignores API keys.
+        key = key or "ollama-local-no-paid-key"
     name = os.environ.get("DEBIAN13_MODEL_NAME", "")
     if not key or not name or len(name) > 128:
         raise ProposalError("Model credentials/name not configured for this workflow.")
