@@ -114,13 +114,13 @@ def terminal_svl_report(workspace: Path, action: str) -> dict:
         return {
             "exitCode": 1,
             "stdout": "",
-            "stderr": "SVL: stan nieprawidłowy lub niedostępny; brak zmian danych.\\n",
+            "stderr": "SVL: stan nieprawidłowy lub niedostępny; brak zmian danych.\n",
         }
     if action == "profiles":
         content = (
-            "Profile skonfigurowane w SVL (NIE są to uruchomieni agenci):\\n"
-            + "\\n".join(result["profileNamesConfigured"])
-            + "\\n"
+            "Profile skonfigurowane w SVL (NIE są to uruchomieni agenci):\n"
+            + "\n".join(result["profileNamesConfigured"])
+            + "\n"
         )
     elif action == "report":
         allowed = (
@@ -133,13 +133,13 @@ def terminal_svl_report(workspace: Path, action: str) -> dict:
         content = json.dumps(
             {key: result.get(key) for key in allowed},
             ensure_ascii=False, indent=2,
-        ) + "\\n"
+        ) + "\n"
     else:
         content = (
-            "SVL Python: " + result["version"] + "\\n"
-            + "Tryb: " + result["mode"] + "\\n"
-            + "Źródło: " + result["source"] + "\\n"
-            + "Magazyn: " + ("plik" if result["storePresent"] else "ustawienia domyślne") + "\\n"
-            + "Nie uruchomiono jądra Debian ani agentów AI.\\n"
+            "SVL Python: " + result["version"] + "\n"
+            + "Tryb: " + result["mode"] + "\n"
+            + "Źródło: " + result["source"] + "\n"
+            + "Magazyn: " + ("plik" if result["storePresent"] else "ustawienia domyślne") + "\n"
+            + "Nie uruchomiono jądra Debian ani agentów AI.\n"
         )
     return {"exitCode": 0, "stdout": content, "stderr": ""}
