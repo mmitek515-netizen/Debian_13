@@ -126,6 +126,7 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getGitHubStatus: () => request('github/status'),
     getSyncState: () => request('sync/state'),
     getIntegrations: () => request('integrations'),
+    getIntegrationProgress: () => request('integration-progress'),
     getTasks: () => request('tasks'),
     getAlexCapabilities: () => request('alex/capabilities'),
     dispatchToAlex: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/dispatch`, {method: 'POST'}),
@@ -714,6 +715,50 @@ async function loadCodexStatus() {
   }
 }
 
+async function loadIntegrationProgress() {
+  const list = document.getElementById('integration-progress-list');
+  if (!list) return;
+  list.replaceChildren();
+  try {
+    const data = await api.getIntegrationProgress();
+    if (data.kind !== 'local_integration_checklist'
+        || data.notOsCompletion !== true || data.notDeploymentProof !== true
+        || !Number.isInteger(data.percentage)
+        || !Array.isArray(data.modules)) {
+      throw new ApiError('Nieprawidłowe dane postępu integracji.');
+    }
+    setText('integration-progress-total',
+      `${data.percentage}% kontroli integracji (${data.verifiedCount}/${data.totalCount})`);
+    for (const module of data.modules) {
+      if (!Number.isInteger(module.percentage) || module.percentage < 0
+          || module.percentage > 100 || !Array.isArray(module.checkpoints)) {
+        throw new ApiError('Błędny wpis na liście integracji.');
+      }
+      const item = document.createElement('li');
+      item.className = 'agent-card';
+      const heading = document.createElement('strong');
+      heading.textContent = `${module.name}: ${module.percentage}%`;
+      const bar = document.createElement('progress');
+      bar.value = module.percentage;
+      bar.max = 100;
+      bar.style.width = '100%';
+      bar.setAttribute('aria-label', `Poziom kontroli: ${module.name}`);
+      const details = document.createElement('p');
+      details.className = 'agent-role';
+      const passed = module.checkpoints.filter(check => check.verified === true).length;
+      details.textContent = `${passed}/${module.checkpoints.length} kontroli potwierdzonych. `
+        + (module.connected === true ? 'Ostatni etap potwierdzony.'
+          : 'Brak potwierdzenia końcowego połączenia/wykonania.');
+      item.append(heading, bar, details);
+      list.append(item);
+    }
+    setText('integration-progress-error', '');
+  } catch (error) {
+    setText('integration-progress-total', 'Postęp niezweryfikowany');
+    setText('integration-progress-error', error.message);
+  }
+}
+
 async function loadIntegrations() {
   const list = document.getElementById('integration-list');
   if (!list) return;
@@ -1019,7 +1064,7 @@ async function cancelWorkTask(taskId, button) {
 }
 
 async function refreshDashboard() {
-  await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadTasks(), loadAiCenterStatus()]);
+  await Promise.all([loadStatus(), loadAgents(), loadOriginalAgents(), loadIntegrations(), loadIntegrationProgress(), loadTasks(), loadAiCenterStatus()]);
 }
 
 async function loadHistory(sessionId) {
