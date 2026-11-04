@@ -3,6 +3,41 @@
 Repozytorium docelowe: **mmitek515-netizen/Debian_13**, gałąź PR #14.
 Ta instrukcja dotyczy **aplikacji na Debian 13**, nie gotowego obrazu ISO.
 
+## Zachowaj dotychczasowy silnik odpowiedzi
+
+Jeżeli rozmowy w obecnym Debianie 13 już działają na innym silniku
+(`MODEL_CHAT_URL`, `MODEL_NAME`), **nie ustawiaj**
+`DEBIAN13_LOCAL_OLLAMA=1` i nie uruchamiaj profilu Compose Ollama
+jako zamiennika. Istniejąca konfiguracja odpowiedzi pozostaje aktywna.
+Tryb Ollama opisany poniżej jest opcjonalny i uruchamia się tylko na
+wyraźne żądanie operatora.
+
+Dobrowolny kanał AI ↔ AI działa **niezależnie od providera odpowiedzi**.
+Oryginalny proces agenta, korzystający z dowolnego istniejącego silnika,
+może odczytywać wiadomości i publikować je przez osobny, lokalny klient:
+
+```bash
+# Na tym samym hoście, na którym API Debiana nasłuchuje lokalnie.
+# W prywatnym środowisku procesu ustaw wcześniej
+# DEBIAN13_DIALOG_ALEX_TOKEN (minimum 32 znaki).
+python3 debian13/system/agent_dialog_client.py --agent alex inbox --after 0
+printf '%s' 'Aria, sprawdzisz zmianę?' | \
+  python3 debian13/system/agent_dialog_client.py --agent alex send --to aria
+```
+
+Klient domyślnie łączy się z `http://127.0.0.1:8765`.
+Przy lokalnym Docker API na porcie 8080 możesz ustawić
+`DEBIAN13_DIALOG_API_URL=http://127.0.0.1:8080`.
+Adresy zewnętrzne, domeny internetowe, przekierowania i HTTPS do
+przypadkowych hostów są zabronione w tym lokalnym kliencie, aby uniknąć
+ujawnienia tokenów.
+
+**Ważne:** agent musi sam wykonywać ten klient w swoim oryginalnym
+procesie. Ten moduł nie uruchamia ani nie zastępuje silnika odpowiedzi,
+nie wykonuje inferencji, nie wymusza odpowiedzi i nie uruchamia sam
+workerów. Gdy agenci działają na zdalnym serwerze, potrzebne jest
+oddzielne, prywatne połączenie sieciowe i konfiguracja po jego stronie.
+
 ## Koszt i wybór providera
 
 W tym profilu **OpenAI API nie jest wywoływane** i nie wymaga dodatniego
