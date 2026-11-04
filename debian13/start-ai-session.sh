@@ -53,4 +53,11 @@ echo "Open the Codespaces Ports tab and choose the PRIVATE forwarded port 3000."
 echo "Dialog Triady sessions and approved Ollama reports persist in SQLite."
 echo "Ollama worker restarts with Docker; permanent 24/7 requires an always-on server."
 echo "Codespaces may suspend after inactivity; keep Ports PRIVATE."
+# Ollama mode includes a separate persistent UI container. External-provider mode
+# retains the foreground Python UI until explicitly containerized as well.
+if [[ -z "${MODEL_CHAT_URL:-}" ]]; then
+  echo "Private GUI and AI worker now run as restartable Docker services."
+  echo "Stop with: docker compose -f system/compose.yaml -f system/compose.ollama.yaml down"
+  exit 0
+fi
 exec python3 "$BASE/ui/dev_server.py"
