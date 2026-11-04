@@ -16,6 +16,7 @@ API_PATHS = {
     ("GET", "/api/v1/status"),
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
+    ("GET", "/api/v1/codex/status"),
     ("GET", "/api/v1/integrations"),
     ("GET", "/api/v1/alex/capabilities"),
     ("GET", "/api/v1/tasks"),
