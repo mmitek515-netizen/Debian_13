@@ -120,6 +120,39 @@ class AgentDialogIntegrationTests(unittest.TestCase):
         self.assertEqual(self.request("GET", "/api/v1/agent-dialog/messages?foo=1", OPERATOR_TOKEN)[0], 400)
         self.assertEqual(self.request("GET", "/api/v1/agent-dialog/messages", OPERATOR_TOKEN)[1]["messages"], [])
 
+    def test_other_model_engine_can_use_the_same_message_bus(self):
+        # No reliance on Ollama: the message API is deliberately model-neutral.
+        from agent_dialog_client import call
+        url = "http://127.0.0.1:" + str(self.server.server_port)
+        self.server.config.update({
+            "model_chat_url": "https://provider.example/v1/chat/completions",
+            "model_api_key": "not-a-real-key", "model_name": "different-engine",
+        })
+        sent = call("alex", "POST", to="aria", content="Czytamy ten sam kanał.",
+                    url=url)
+        self.assertTrue(sent["accepted"])
+        self.assertFalse(sent["automaticReplyScheduled"])
+        received = call("aria", "GET", after=0, url=url)
+        self.assertEqual(received["messages"][0]["sender"], "alex")
+        self.assertEqual(received["messages"][0]["content"], "Czytamy ten sam kanał.")
+        self.assertFalse(received["agentInferenceVerified"])
+
+    def test_optional_client_rejects_remote_host_and_missing_private_token(self):
+        from agent_dialog_client import trusted_local_address, call, DialogClientError
+        for address in (
+            "https://api.openai.com/v1/chat/completions",
+            "http://example.org:8765",
+            "http://127.0.0.1:8765/path",
+            "http://user:secret@localhost:8765",
+            "http://127.0.0.1:8765/?token=secret",
+        ):
+            with self.subTest(address=address), self.assertRaises(DialogClientError):
+                trusted_local_address(address)
+        with patch.dict(os.environ, {"DEBIAN13_DIALOG_ALEX_TOKEN": ""}):
+            with self.assertRaises(DialogClientError):
+                call("alex", "GET", url="http://127.0.0.1:" + str(self.server.server_port))
+
+
 
 if __name__ == "__main__":
     unittest.main()
