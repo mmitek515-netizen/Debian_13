@@ -148,7 +148,10 @@ class MCPHTTPGatewayTests(unittest.TestCase):
         self.assertEqual(self.request(method="GET")[0], 405)
         self.assertEqual(self.request(method="DELETE")[0], 405)
         for bad in ([], {"jsonrpc": "2.0", "id": 1, "method": "run_shell"},
-                    {"jsonrpc": "2.0", "method": "tools/list"}):
+                    {"jsonrpc": "2.0", "method": "tools/list"},
+                    {"jsonrpc": "2.0", "id": 1, "method": []},
+                    {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                     "params": {"name": []}}):
             self.assertEqual(self.request(bad)[0], 400)
         status, result, _ = self.request({
             "jsonrpc": "2.0", "id": 5, "method": "tools/call",
