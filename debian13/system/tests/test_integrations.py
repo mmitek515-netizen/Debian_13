@@ -93,12 +93,46 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(reply["result"]["isError"])
         self.assertNotIn(TOKEN, json.dumps(reply))
 
+    def test_gpt_actions_readonly_queue_and_original_agents_require_auth(self):
+        # These routes already exist on the real backend and must not leak
+        # task descriptions or the owner's registry to anonymous callers.
+        connection = http.client.HTTPConnection(*self.api.server_address, timeout=4)
+        try:
+            for path in ("/api/v1/tasks", "/api/v1/original-agents"):
+                connection.request("GET", path)
+                denied = connection.getresponse()
+                self.assertEqual(denied.status, 401, path)
+                denied.read()
+                connection.request("GET", path, headers={"Authorization": "Bearer " + TOKEN})
+                allowed = connection.getresponse()
+                self.assertEqual(allowed.status, 200, path)
+                result = json.load(allowed)
+                if path.endswith("/tasks"):
+                    self.assertEqual(result["storage"], "sqlite")
+                    self.assertEqual(result["workersRunning"], 0)
+                    self.assertEqual(result["tasks"], [])
+                else:
+                    self.assertEqual({a["name"] for a in result["agents"]},
+                                     {"Alex", "Aria", "Astyria", "Aurelius"})
+                    self.assertFalse(result["originalAgentExecutionVerified"])
+                    self.assertTrue(all(not a["connected"] and not a["workerVerified"]
+                                        for a in result["agents"]))
+        finally:
+            connection.close()
+
     def test_gpt_actions_schema_documents_existing_routes_only(self):
         schema = json.loads((SYSTEM / "gpt-actions.openapi.json").read_text(encoding="utf-8"))
         self.assertEqual(schema["openapi"], "3.0.3")
         for route in ("/v1/profiles", "/v1/diagnostics", "/v1/chat", "/v1/integrations"):
             self.assertIn(route, schema["paths"])
         self.assertEqual(schema["security"], [{"bearerAuth": []}])
+        for route, operation in (("/api/v1/tasks", "listDebian13WorkQueue"),
+                                 ("/api/v1/original-agents", "getDebian13OriginalAgents")):
+            self.assertIn(route, schema["paths"])
+            self.assertEqual(set(schema["paths"][route]), {"get"})
+            self.assertEqual(schema["paths"][route]["get"]["operationId"], operation)
+            self.assertIn("401", schema["paths"][route]["get"]["responses"])
+        self.assertEqual(schema["servers"][0]["url"], "https://debian13.example.com")
         self.assertTrue(schema["paths"]["/v1/chat"]["post"]["x-openai-isConsequential"])
 
 
