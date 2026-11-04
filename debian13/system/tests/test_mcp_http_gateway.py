@@ -19,6 +19,7 @@ from mcp_http_gateway import (
     MCPHTTPGateway, allowed_origins_from_env, validate_token,
 )
 import mcp_server
+import mcp_preflight
 
 BACKEND_TOKEN = "debian13-test-backend-secret-32-characters"
 GATEWAY_TOKEN = "debian13-test-gateway-secret-32-characters"
@@ -193,6 +194,31 @@ class MCPHTTPGatewayTests(unittest.TestCase):
         })
         self.assertEqual(status, 200)
         self.assertIn("tools", result["result"])
+
+    def test_preflight_checks_real_read_only_tools_and_honest_statuses(self):
+        report = mcp_preflight.check_local(self.gateway.server_port, GATEWAY_TOKEN)
+        self.assertEqual(report["localMcpStatus"], "verified")
+        self.assertEqual(report["transport"], "loopback_http")
+        self.assertEqual(report["readOnlyToolCount"], 7)
+        self.assertEqual(report["authentication"], "verified")
+        self.assertEqual(report["workQueueCount"], 0)
+        self.assertEqual(report["workersReportedByBackend"], 0)
+        self.assertEqual(report["originalAgentWorkersVerified"], 0)
+        self.assertFalse(report["originalAgentExecutionVerified"])
+        self.assertEqual(report["chatgptExternalConnection"], "not_tested")
+        self.assertEqual(report["publicMcpEndpoint"], "not_deployed_by_this_check")
+        self.assertTrue(all(value is False for value in report["integrations"].values()))
+        self.assertNotIn(GATEWAY_TOKEN, json.dumps(report))
+        self.assertNotIn(BACKEND_TOKEN, json.dumps(report))
+
+    def test_preflight_wrong_token_fails_closed_without_leaking_secret(self):
+        with self.assertRaises(mcp_preflight.ProbeError) as caught:
+            mcp_preflight.check_local(
+                self.gateway.server_port, "incorrect-private-token-with-32-chars")
+        self.assertNotIn(GATEWAY_TOKEN, str(caught.exception))
+        self.assertNotIn(BACKEND_TOKEN, str(caught.exception))
+        with self.assertRaises(mcp_preflight.ProbeError):
+            mcp_preflight.check_local(self.gateway.server_port, "short")
 
     def test_startup_rejects_insecure_bindings_and_bad_origins(self):
         with self.assertRaises(ValueError):
