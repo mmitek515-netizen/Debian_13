@@ -51,6 +51,9 @@
             <button class="nav-button" type="button" data-view="work" aria-label="Work">
               <span class="nav-icon" aria-hidden="true">▤</span><span class="nav-label">Work</span>
             </button>
+            <button class="nav-button" type="button" data-view="codex" aria-label="Centrum Programowania Codex">
+              <span class="nav-icon" aria-hidden="true">⌘</span><span class="nav-label">Codex · programowanie</span>
+            </button>
             <button class="nav-button" type="button" data-view="terminal" aria-label="Terminal">
               <span class="nav-icon" aria-hidden="true">›_</span><span class="nav-label">Terminal</span>
             </button>
@@ -239,6 +242,42 @@
                 <button id="terminal-submit" type="submit" class="button button-secondary">Uruchom</button>
               </div>
             </form>
+          </section>
+
+          <section id="codex-view" class="workspace-view settings-view codex-view" aria-labelledby="codex-title" hidden>
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">NIEZALEŻNE CENTRUM PROGRAMOWANIA</p>
+                <h2 id="codex-title">Codex · programowanie</h2>
+              </div>
+              <button id="codex-refresh" class="button button-secondary" type="button">Sprawdź Codex</button>
+            </div>
+            <p class="work-limit-note">
+              Codex jest osobnym narzędziem programistycznym, niezależnym od Dialogu Triady i Ollamy.
+              Wynik poniżej dotyczy środowiska, na którym działa serwer API — Codex w osobnym
+              Codespace może mieć inny stan. Logowanie wykonujesz w terminalu użytkownika.
+              Ten panel nie uruchamia kodu, nie wydaje poleceń root ani nie scala zmian.
+            </p>
+            <p id="codex-error" class="status-error" role="status" aria-live="polite"></p>
+            <dl class="runtime-grid" aria-live="polite">
+              <div><dt>Codex CLI w środowisku API</dt><dd id="codex-cli-status">Nie sprawdzono</dd></div>
+              <div><dt>Logowanie</dt><dd id="codex-login-status">Nie sprawdzono</dd></div>
+              <div><dt>Wersja</dt><dd id="codex-version-status">Nie sprawdzono</dd></div>
+              <div><dt>Worker w tle</dt><dd id="codex-worker-status">Nie potwierdzono</dd></div>
+            </dl>
+            <h3 class="settings-subheading">Instalacja i połączenie MCP</h3>
+            <p class="work-limit-note">Poniższe polecenia uruchamiasz w terminalu hosta lub Codespaces. Nie wymagają wklejania klucza OpenAI API do kodu. Korzystanie z Codexa zależy od dostępnych limitów planu.</p>
+            <pre class="codex-command-list">codex --version
+codex login
+python3 debian13/system/mcp_autoconfigure.py --check
+python3 debian13/system/mcp_autoconfigure.py --install-codex
+codex mcp list</pre>
+            <p class="work-limit-note">
+              Autokonfigurator sprawdza lokalny serwer MCP i rejestruje mostek stdio
+              tylko po Twoim wywołaniu. Token API pozostaje w prywatnym pliku.
+              Wymagana jest uruchomiona aplikacja Debian 13.
+            </p>
+            <p><a href="https://github.com/mmitek515-netizen/Debian_13/issues/3" target="_blank" rel="noopener noreferrer">Zadanie GitHub Codex #3</a></p>
           </section>
 
           <section id="settings-view" class="workspace-view settings-view" aria-labelledby="settings-title" hidden>
