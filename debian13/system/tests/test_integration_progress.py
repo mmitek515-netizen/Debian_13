@@ -67,7 +67,8 @@ class PercentageTests(unittest.TestCase):
             worker = threading.Thread(target=api.serve_forever, daemon=True)
             worker.start()
             try:
-                with http.client.HTTPConnection(*api.server_address, timeout=4) as conn:
+                conn = http.client.HTTPConnection(*api.server_address, timeout=4)
+                try:
                     conn.request("GET", "/api/v1/integration-progress")
                     resp = conn.getresponse()
                     self.assertEqual(resp.status, 401)
@@ -81,6 +82,8 @@ class PercentageTests(unittest.TestCase):
                     self.assertEqual(result["verifiedCount"], 6)
                     self.assertNotIn(TOKEN, json.dumps(result))
                     self.assertTrue(all(not item["connected"] for item in result["modules"]))
+                finally:
+                    conn.close()
             finally:
                 api.shutdown()
                 api.server_close()
