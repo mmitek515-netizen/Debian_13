@@ -172,9 +172,25 @@ jobs:
             python3 debian13/ui/dev_server.py > /tmp/debian13-ui.log 2>&1 &
           UI_PID=$!
           trap 'kill "$API_PID" "$UI_PID" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 30); do
-            if python3 -c 'import urllib.request;urllib.request.urlopen("http://127.0.0.1:3000/", timeout=1)' >/dev/null 2>&1; then break; fi
-            sleep 1
+          # The static HTML can serve before the API has bound its socket.
+          # Wait for the complete UI -> private proxy -> live API contract.
+          for attempt in $(seq 1 60); do
+            if python3 - <<'PY'
+          import json, urllib.request
+          try:
+              with urllib.request.urlopen("http://127.0.0.1:3000/api/v1/status", timeout=1) as response:
+                  data = json.load(response)
+                  assert response.status == 200 and data["application"]["status"] == "running"
+          except Exception:
+              raise SystemExit(1)
+          PY
+            then break; fi
+            if ! kill -0 "$API_PID" 2>/dev/null || ! kill -0 "$UI_PID" 2>/dev/null; then
+              echo "API or UI exited before readiness" >&2
+              cat /tmp/debian13-api.log /tmp/debian13-ui.log >&2 || true
+              exit 1
+            fi
+            sleep .25
           done
           python3 - <<'PY'
           import json
