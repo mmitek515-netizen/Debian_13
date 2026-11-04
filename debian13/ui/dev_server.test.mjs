@@ -283,3 +283,21 @@ test('SVL commands are proxied only on the authenticated, allowlisted route', as
   assert.equal(disallowed.status, 404);
   assert.equal(upstream.requests.length, 1);
 });
+
+test('SVL API client uses the named command endpoint without an external model', async () => {
+  const { createApiClient } = await import('./app.mjs');
+  const requests = [];
+  const api = createApiClient({ fetchImpl: async (url, options) => {
+    requests.push({ url, method: options.method, headers: options.headers, body: options.body });
+    return new Response(JSON.stringify({
+      processor: 'SVL', execution: 'read_only',
+      result: { metricC: 2.5 },
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } });
+  const response = await api.svl('metryka -inf inf');
+  assert.equal(response.result.metricC, 2.5);
+  assert.equal(requests[0].url, '/api/v1/svl/command');
+  assert.equal(requests[0].method, 'POST');
+  assert.deepEqual(JSON.parse(requests[0].body), { command: 'metryka -inf inf' });
+  assert.equal(requests[0].headers['Content-Type'], 'application/json');
+});
