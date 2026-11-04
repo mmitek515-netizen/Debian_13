@@ -1,6 +1,16 @@
 name: Debian 13 validation
 on:
   workflow_dispatch:
+  # A green PR check does not validate the exact main commit after merging.
+  # Run the same checks on main so the read-only update preflight can verify it.
+  push:
+    branches:
+      - main
+    paths:
+      - '.devcontainer/debian13/**'
+      - '.github/workflows/debian13-validation.yml'
+      - 'docs/DEBIAN13_AGENT_SETUP.md'
+      - 'debian13/**'
   pull_request:
     paths:
       - '.devcontainer/debian13/**'
