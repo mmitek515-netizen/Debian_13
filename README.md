@@ -41,6 +41,35 @@ node --test debian13/ui/dev_server.test.mjs
 **Wymagania:** Python 3.10+; przeglądarka. Do samego startu aplikacji
 nie potrzeba Dockera, npm, płatnego planu GitHub ani klucza API.
 
+## Procesor poleceń SVL (Python)
+
+W projekcie jest dostępna eksperymentalna, **tylko-do-odczytu** warstwa SVL
+5.6.0-QuantumWheel, zaadaptowana z kodu dostarczonego przez operatora.
+Uruchomienie zwykłego serwera Debian 13 udostępnia uwierzytelnione
+`POST /api/v1/svl/command` z JSON, np. `{"command":"status"}`.
+Obsługiwane polecenia: `pomoc`, `status`, `metryka -inf inf`,
+`diagnostyka`, `integracje`, `agenci`, `zadania`.
+
+Trasa korzysta z istniejącej autoryzacji API. Przykładowe wywołanie
+z hosta, **po załadowaniu prawidłowego tokenu tylko do środowiska terminala**:
+
+```bash
+curl -fsS http://127.0.0.1:8765/api/v1/svl/command \
+  -H "Authorization: Bearer $DEBIAN13_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"command":"metryka -inf inf"}'
+```
+
+Wynik zawiera `processor: "SVL"` i `execution: "read_only"`. 
+**SVL nie uruchamia shella, workerów, nie przyznaje root ani nie
+dokonuje zakupów.** Statusy agentów i integracji są odczytywane z aktualnych
+modułów Debian 13; niepotwierdzone połączenia pozostają oznaczone jako
+niezweryfikowane. Wynik +1456% z prototypu nie był benchmarkiem i nie jest
+prezentowany jako zmierzony wzrost wydajności.
+
+Testy: `python3 -m unittest discover -s debian13/system/tests -v`.
+Wdrożenie do `main` wymaga przeglądu PR i pozytywnego CI.
+
 ## Podłączanie modelu AI — oddzielnie od startu aplikacji
 
 Bez modelu API uczciwie zwraca `503 provider_not_configured` podczas
