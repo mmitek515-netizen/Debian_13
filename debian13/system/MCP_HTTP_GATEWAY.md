@@ -39,6 +39,14 @@ credential after restarting the app and terminates the gateway when the
 launcher stops. The gateway is *disabled by default*, and neither the
 secret nor local API token is printed in the console.
 
+**Persisted-token safety:** the launcher now refuses existing API/MCP token
+files that are symlinks, hard-linked, owned by another user, or readable by
+group/others. New tokens are created with owner-only permissions (0600).
+If the launcher reports an unsafe token file, inspect it locally before
+proceeding. If the credential might have been exposed, stop the service and
+rotate it rather than merely changing file permissions. Never paste a
+secret into logs or GitHub Issues.
+
 To configure a client on **the same trusted host**, retrieve the gateway
 token from the private file into the client's secret store. Never paste
 that token into issues or commit it. Read the token only as the host
