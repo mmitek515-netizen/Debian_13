@@ -8,7 +8,7 @@
       name="description"
       content="Niezależny interfejs roboczy terminala i czatu dla nowego systemu Debian 13."
     />
-    <title>Debian 13 · Console</title>
+    <title>Dialog Triady · Debian13_orginal</title>
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
     <script type="module" src="./app.mjs"></script>
@@ -19,11 +19,11 @@
         <button id="mobile-menu" class="icon-button mobile-menu" type="button" aria-label="Otwórz panel boczny" aria-expanded="false" aria-controls="sidebar">
           <span aria-hidden="true">☰</span>
         </button>
-        <a class="brand" href="./" aria-label="Debian 13 Console — pulpit">
+        <a class="brand" href="./" aria-label="Dialog Triady — pulpit">
           <span class="brand-mark" aria-hidden="true">D13</span>
           <span>
-            <strong>Debian 13</strong>
-            <span class="brand-subtitle">Console · nowy system</span>
+            <strong>DEBIAN 13 · HYPERSPACE</strong>
+            <span class="brand-subtitle">Dialog Triady · terminal · Real Vision</span>
           </span>
         </a>
         <div id="connection-status" class="runtime-pill" role="status" aria-live="polite">
@@ -90,9 +90,9 @@
         <main class="main-content">
           <section class="view-intro" aria-labelledby="page-title">
             <div>
-              <p class="eyebrow">NIEZALEŻNE ŚRODOWISKO DEBIAN 13</p>
-              <h1 id="page-title">W czym mogę pomóc?</h1>
-              <p>Wiadomości są wysyłane do lokalnego API. Odpowiedź modelu pojawi się tylko wtedy, gdy Ollama jest dostępna.</p>
+              <p class="eyebrow">DEBIAN13_ORGINAL · ENTER THE HYPERSPACE</p>
+              <h1 id="page-title">Dialog Triady</h1>
+              <p>Rozmawiaj z profilem AI, wydawaj polecenia i analizuj zdjęcia przez Real Vision. Odpowiedzi pochodzą wyłącznie z połączonego modelu.</p>
             </div>
             <div class="view-switch" role="group" aria-label="Widok pracy">
               <button class="view-switch-button is-active" type="button" data-view="chat" aria-pressed="true">Czat</button>
@@ -100,12 +100,17 @@
             </div>
           </section>
 
-          <section id="chat-view" class="workspace-view chat-view" aria-label="Czat">
+          <section id="chat-view" class="workspace-view chat-view" aria-label="Dialog Triady">
+            <div class="triad-chat-header" aria-label="Informacje o rozmowie">
+              <div>
+                <span class="triad-kicker">TRIAD COMMUNICATION PROTOCOL</span>
+                <h2>Dialog Triady <span class="triad-model-tag">OLLAMA + REAL VISION</span></h2>
+                <p>Aria · Alex · Astyria · Aurelius — profile AI; aktywność oryginalnych agentów sprawdzisz w diagnostyce.</p>
+              </div>
+              <span class="triad-connection" id="triad-connection-label">Wiadomości przez prywatne API</span>
+            </div>
             <div id="chat-transcript" class="transcript" aria-label="Rozmowa" aria-live="polite" aria-relevant="additions text">
-              <p class="empty-state">
-                Wybierz profil i wyślij wiadomość. <code>/help</code> działa lokalnie;
-                pozostałe wiadomości wymagają dostępnego modelu.
-              </p>
+              <p class="empty-state">To jest Dialog Triady. Wybierz profil, napisz wiadomość albo dołącz zdjęcie. Odpowiedź otrzymasz po uruchomieniu modelu Ollama.</p>
             </div>
             <form id="chat-form" class="composer">
               <label class="visually-hidden" for="chat-message">Wiadomość</label>
@@ -113,16 +118,15 @@
                 id="chat-message"
                 name="message"
                 rows="2"
-                maxlength="12000"
-                placeholder="Napisz wiadomość…"
+                maxlength="4000"
+                placeholder="Napisz do Triady lub dodaj zdjęcie do analizy…"
                 autocomplete="off"
-                required
               ></textarea>
               <div class="vision-attachment">
                 <label class="button button-secondary vision-select" for="chat-image">
-                  <span aria-hidden="true">▧</span> Dodaj zdjęcie (Vision)
+                  <span aria-hidden="true">▧</span> Real Vision · Dodaj zdjęcie
                 </label>
-                <input id="chat-image" type="file" accept="image/jpeg,image/png" aria-label="Dodaj zdjęcie do analizy Llama Vision" />
+                <input id="chat-image" type="file" accept="image/jpeg,image/png" aria-label="Dodaj zdjęcie do analizy przez Ollama Vision" />
                 <div id="chat-image-preview" class="vision-preview" hidden>
                   <img id="chat-image-thumbnail" alt="Wybrane zdjęcie do analizy" />
                   <span id="chat-image-name"></span>
@@ -130,9 +134,7 @@
                 </div>
               </div>
               <div class="form-footer">
-                <p id="chat-feedback" class="form-feedback" aria-live="polite">
-                  Wiadomość zostanie wysłana po połączeniu z API.
-                </p>
+                <p id="chat-feedback" class="form-feedback" aria-live="polite">Wiadomości są wysyłane do lokalnego API. Historia rozmów będzie zapisywana w SQLite.</p>
                 <button id="chat-submit" type="submit" class="button button-primary">Wyślij</button>
                 <button id="chat-stop" class="button button-secondary" type="button" hidden>Zatrzymaj</button>
               </div>
