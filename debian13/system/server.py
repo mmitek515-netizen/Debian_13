@@ -278,13 +278,14 @@ def is_ollama_endpoint(url: str) -> bool:
 
 def complete_chat(profile: str, message: str, config: dict, image: str | None = None,
                   history: list[dict] | None = None,
-                  notes: list[dict] | None = None) -> tuple[str, str]:
+                  notes: list[dict] | None = None,
+                  ollama_image_format: bool = False) -> tuple[str, str]:
     if not config["model_chat_url"] or not config["model_api_key"] or not config["model_name"]:
         raise ApiError(503, "provider_not_configured", "No AI model provider is configured.")
     model = config.get("vision_model_name", "") if image is not None else config["model_name"]
     if not model:
         raise ApiError(503, "vision_not_configured", "A vision model is not configured.")
-    is_ollama = is_ollama_endpoint(config["model_chat_url"])
+    is_ollama = ollama_image_format or is_ollama_endpoint(config["model_chat_url"])
     user_content = message if image is None else [
         {"type": "text", "text": message},
         # Ollama's /v1 Chat Completions docs use a string image_url.
@@ -333,6 +334,55 @@ def complete_chat(profile: str, message: str, config: dict, image: str | None = 
     if not isinstance(content, str) or not content.strip():
         raise ApiError(502, "empty_provider_response", "The model provider returned no message.")
     return content.strip()[:MAX_MESSAGE_CHARS], model
+
+
+def validate_ollama_vision_url(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value)
+    if (parsed.scheme != "http" or not parsed.hostname
+            or parsed.port != 11434
+            or parsed.hostname not in ("127.0.0.1", "localhost", "::1", "ollama")
+            or (parsed.hostname == "ollama" and os.environ.get("DEBIAN13_ALLOW_INTERNAL_OLLAMA") != "1")
+            or parsed.path != "/v1/chat/completions"
+            or parsed.query or parsed.fragment or parsed.username or parsed.password):
+        raise ValueError("OLLAMA_VISION_URL must target local Ollama port 11434.")
+    return value
+
+
+def complete_vision(profile: str, message: str, config: dict, image: str,
+                    history: list[dict] | None = None,
+                    notes: list[dict] | None = None) -> tuple[str, str, str]:
+    """Always try private Ollama first. External fallback is explicit and optional.
+
+    Images are sent to a paid/external API ONLY when VISION_FALLBACK_ENABLED=1,
+    all fallback settings are provided, and the local attempt fails.
+    """
+    vision_url = config.get("ollama_vision_url") or "http://127.0.0.1:11434/v1/chat/completions"
+    primary = dict(config,
+                   model_chat_url=vision_url,
+                   model_api_key="ollama-local-no-remote-secret",
+                   model_name=config.get("ollama_vision_model") or "llama3.2-vision:11b",
+                   vision_model_name=config.get("ollama_vision_model") or "llama3.2-vision:11b")
+    try:
+        answer, model = complete_chat(profile, message, primary, image, history, notes,
+                                      ollama_image_format=True)
+        return answer, model, "ollama"
+    except ApiError as exc:
+        if exc.code not in ("provider_unavailable", "provider_error", "provider_response_too_large",
+                            "invalid_provider_response", "empty_provider_response"):
+            raise
+        if not config.get("vision_fallback_enabled", False):
+            raise ApiError(503, "ollama_vision_unavailable",
+                           "Ollama Vision is unavailable. External fallback is disabled.") from exc
+        url = config.get("vision_fallback_url", "")
+        key = config.get("vision_fallback_key", "")
+        model = config.get("vision_fallback_model", "")
+        if not url or not key or not model:
+            raise ApiError(503, "vision_fallback_not_configured",
+                           "Vision fallback was enabled but its credentials are missing.") from exc
+        fallback = dict(config, model_chat_url=url, model_api_key=key,
+                        model_name=model, vision_model_name=model)
+        content, model_name = complete_chat(profile, message, fallback, image, history, notes)
+        return content, model_name, "vision_fallback_api"
 
 
 def runtime_diagnostics(server) -> dict:
@@ -721,10 +771,15 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                 clean_message = message.strip()
                 history = self.server.chat_memory.context(session_id)
                 notes = self.server.chat_memory.notes()
-                content, model = complete_chat(profile, clean_message, self.server.config,
-                                               image, history=history, notes=notes)
-                source = ("ollama" if is_ollama_endpoint(self.server.config["model_chat_url"])
-                          else "model_provider")
+                if image is not None:
+                    content, model, source = complete_vision(
+                        profile, clean_message, self.server.config, image,
+                        history=history, notes=notes)
+                else:
+                    content, model = complete_chat(profile, clean_message, self.server.config,
+                                                   history=history, notes=notes)
+                    source = ("ollama" if is_ollama_endpoint(self.server.config["model_chat_url"])
+                              else "model_provider")
                 session_id = self.server.chat_memory.save_exchange(
                     session_id, profile, clean_message, content, source, image_attached=image is not None)
                 if self.path == "/api/v1/chat/stream":
@@ -760,8 +815,26 @@ def load_config() -> dict:
         provider_url = validate_provider_url(os.environ.get("MODEL_CHAT_URL", "").strip())
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc
+    try:
+        ollama_vision_url = validate_ollama_vision_url(
+            os.environ.get("OLLAMA_VISION_URL",
+                           "http://127.0.0.1:11434/v1/chat/completions").strip())
+        fallback_enabled = os.environ.get("VISION_FALLBACK_ENABLED", "0") == "1"
+        fallback_url = validate_provider_url(os.environ.get("VISION_FALLBACK_CHAT_URL", "").strip())
+        fallback_key = os.environ.get("VISION_FALLBACK_API_KEY", "")
+        fallback_model = os.environ.get("VISION_FALLBACK_MODEL", "").strip()
+        if fallback_enabled and (not fallback_url or not fallback_key or not fallback_model):
+            raise ValueError("Vision fallback requires URL, API key and model; or disable fallback.")
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return {
         "api_token": token,
+        "ollama_vision_url": ollama_vision_url,
+        "ollama_vision_model": os.environ.get("OLLAMA_VISION_MODEL", "llama3.2-vision:11b"),
+        "vision_fallback_enabled": fallback_enabled,
+        "vision_fallback_url": fallback_url,
+        "vision_fallback_key": fallback_key,
+        "vision_fallback_model": fallback_model,
         "model_chat_url": provider_url,
         "model_api_key": os.environ.get("MODEL_API_KEY", ""),
         "model_name": os.environ.get("MODEL_NAME", ""),
