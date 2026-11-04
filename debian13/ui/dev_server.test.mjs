@@ -279,3 +279,26 @@ test('Codex private diagnostic proxy is read-only and forwards only server token
   assert.equal(denied.status, 404);
   assert.equal(upstream.requests.length, 1);
 });
+
+test('local Ollama approval route is authenticated, bodyless, and cannot execute code', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'fixture-ai-center-operator-token');
+  const status = await fetch(`${base}/api/v1/ai-center/status`);
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), {ok: true, path: '/api/v1/ai-center/status'});
+  const approved = await fetch(`${base}/api/v1/tasks/${TEST_TASK_ID}/approve-analysis`, {
+    method: 'POST', headers: {Authorization: 'Bearer injected-browser-token'},
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json()).path,
+               `/api/v1/tasks/${TEST_TASK_ID}/approve-analysis`);
+  assert.equal(upstream.requests[1].authorization,
+               'Bearer fixture-ai-center-operator-token');
+  assert.equal(upstream.requests[1].body, '');
+  const denied = await fetch(`${base}/api/v1/tasks/${TEST_TASK_ID}/approve-analysis`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({root:true}),
+  });
+  assert.equal(denied.status, 400);
+  assert.equal(upstream.requests.length, 2, 'local Ollama approval route must reject bodies');
+});
