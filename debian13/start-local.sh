@@ -174,6 +174,7 @@ fi
 if [[ "$MCP_ENABLED" == "1" ]]; then
   python3 -u "$ROOT/system/mcp_http_gateway.py" >"$STATE_DIR/mcp.log" 2>&1 &
   MCP_PID=$!
+  MCP_READY=0
   for _attempt in $(seq 1 40); do
     if ! kill -0 "$MCP_PID" 2>/dev/null; then
       echo "ERROR: MCP gateway stopped. See $STATE_DIR/mcp.log" >&2
@@ -200,12 +201,13 @@ except Exception:
     raise SystemExit(1)
 PY
     then
+      MCP_READY=1
       break
     fi
     sleep .15
   done
-  if ! kill -0 "$MCP_PID" 2>/dev/null; then
-    echo "ERROR: MCP gateway stopped. See $STATE_DIR/mcp.log" >&2
+  if [[ "$MCP_READY" != "1" ]] || ! kill -0 "$MCP_PID" 2>/dev/null; then
+    echo "ERROR: MCP tools/list readiness failed. See $STATE_DIR/mcp.log" >&2
     exit 1
   fi
 fi
