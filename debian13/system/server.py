@@ -954,9 +954,9 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                         diagnostic = runtime_diagnostics(self.server)
                         local = self.server.work_store.local_worker_status()
                         content = (
-                            "Status rzeczywistego API Debian 13: aktywne.\\n"
-                            f"Provider modelu: {'skonfigurowany (bez potwierdzenia inferencji)' if diagnostic['providerConfigured'] else 'nieskonfigurowany'}.\\n"
-                            f"Worker lokalny Ollama: {'heartbeat aktualny' if local['workerHeartbeatVerified'] else 'brak potwierdzonego heartbeat'}.\\n"
+                            "Status rzeczywistego API Debian 13: aktywne.\n"
+                            f"Provider modelu: {'skonfigurowany (bez potwierdzenia inferencji)' if diagnostic['providerConfigured'] else 'nieskonfigurowany'}.\n"
+                            f"Worker lokalny Ollama: {'heartbeat aktualny' if local['workerHeartbeatVerified'] else 'brak potwierdzonego heartbeat'}.\n"
                             "Oryginalni agenci i start pełnego systemu Debian 13: niezweryfikowane."
                         )
                     else:
@@ -974,7 +974,7 @@ class SystemHandler(http.server.BaseHTTPRequestHandler):
                                 f"{item['name']}: {item['percentage']}% ({item['verifiedCount']}/{item['totalCount']})."
                             )
                         lines.append("To nie jest procent gotowości OS ani potwierdzenie działania agentów AI.")
-                        content = "\\n".join(lines)
+                        content = "\n".join(lines)
                     session_id = self.server.chat_memory.save_exchange(
                         session_id, profile, clean_message, content, "system_command")
                     if self.path == "/api/v1/chat/stream":
