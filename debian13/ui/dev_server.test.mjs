@@ -394,3 +394,25 @@ test('global sync UI control and read-only JS are served locally', async (t) => 
   assert.match(await module.text(), /readWorkspaceSources/);
   assert.equal(upstream.requests.length, 0);
 });
+
+test('SVL status proxy only allows read-only requests and never forwards browser token', async (t) => {
+  const upstream = await startUpstreamDouble(t);
+  const base = await startUiProxy(t, upstream.port, 'svl-operator-token-from-private-server');
+  const result = await fetch(base + '/api/v1/svl/status', {
+    headers: {Authorization: 'Bearer browser-untrusted-token'},
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), {ok: true, path: '/api/v1/svl/status'});
+  assert.equal(upstream.requests.length, 1);
+  assert.equal(upstream.requests[0].authorization, 'Bearer svl-operator-token-from-private-server');
+  const attemptedWrite = await fetch(base + '/api/v1/svl/status', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({action: 'bump', root: true}),
+  });
+  assert.equal(attemptedWrite.status, 404);
+  assert.equal(upstream.requests.length, 1);
+  const page = await fetch(base + '/');
+  const html = await page.text();
+  assert.match(html, /id="svl-status"/);
+  assert.match(html, /Polecenie <code>\\/svl<\\/code>/);
+});
