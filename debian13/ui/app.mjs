@@ -1,4 +1,4 @@
-import { readWorkspaceSources } from './global_sync.mjs';
+import { readWorkspaceSources, readWithTimeout } from './global_sync.mjs';
 
 export const AGENT_PROFILES = Object.freeze([
   { id: 'aria', name: 'Aria' },
@@ -1088,21 +1088,28 @@ async function synchronizeAllData() {
     // This checks current data only; GitHub checkout/deploy and external AI work
     // require separate authorized operations. Never claim a code deployment.
     const evidence = await readWorkspaceSources(api);
+    // Bound the second-stage UI rendering too: source probes alone are not
+    // enough when a dashboard request becomes unresponsive.
     const refreshed = await Promise.allSettled([
-      refreshSyncState(), refreshDashboard(), refreshWork(),
-      refreshGithub(), loadCodexStatus(),
-    ]);
+      () => refreshSyncState(), () => refreshDashboard(), () => refreshWork(),
+      () => refreshGithub(), () => loadCodexStatus(),
+    ].map(view => readWithTimeout(view)));
     const syncState = refreshed[0];
     const workState = refreshed[2];
     const renderFailed = refreshed.some(x => x.status === 'rejected')
       || (syncState.status === 'fulfilled' && syncState.value === null)
       || (workState.status === 'fulfilled' && workState.value === false);
+    let historyFailed = false;
     if (activeSessionId && !activeChatController) {
-      await loadHistory(activeSessionId);
+      try {
+        await readWithTimeout(() => loadHistory(activeSessionId));
+      } catch {
+        historyFailed = true;
+      }
     }
     document.getElementById('agent-dialog-refresh')?.click();
     const missing = evidence.failed.join(', ');
-    const partial = !evidence.complete || renderFailed;
+    const partial = !evidence.complete || renderFailed || historyFailed;
     status.textContent = partial
       ? `Odczyt ${evidence.successful}/${evidence.total} źródeł`
           + (missing ? ` · niedostępne: ${missing}` : ' · część widoków niedostępna')
