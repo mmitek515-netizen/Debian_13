@@ -414,5 +414,5 @@ test('SVL status proxy only allows read-only requests and never forwards browser
   const page = await fetch(base + '/');
   const html = await page.text();
   assert.match(html, /id="svl-status"/);
-  assert.match(html, /Polecenie <code>\\/svl<\\/code>/);
+  assert.equal(html.includes('Polecenie <code>/svl</code>'), true);
 });
