@@ -120,6 +120,8 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getAiCenterStatus: () => request('ai-center/status'),
     getAgents: () => request('agents'),
     getOriginalAgents: () => request('original-agents'),
+    getGitHubStatus: () => request('github/status'),
+    getSyncState: () => request('sync/state'),
     getIntegrations: () => request('integrations'),
     getTasks: () => request('tasks'),
     getAlexCapabilities: () => request('alex/capabilities'),
@@ -455,6 +457,110 @@ function renderHistory(activeId = '') {
 }
 
 const api = createApiClient();
+let syncedUiTitle = 'Dialog Triady';
+let syncedRevision = -1;
+
+function displaySyncState(data) {
+  if (!Number.isSafeInteger(data?.revision) || data.revision < 0
+      || typeof data.title !== 'string' || data.title.length > 80
+      || !data.title.trim()) {
+    throw new ApiError('Serwer synchronizacji zwrócił nieprawidłowe dane.');
+  }
+  if (data.revision < syncedRevision) return;
+  syncedRevision = data.revision;
+  syncedUiTitle = data.title;
+  setText('sync-chat-title', data.title);
+  const chatView = document.getElementById('chat-view');
+  if (chatView && !chatView.hidden) setText('page-title', data.title);
+  setText('sync-status', 'Synchronizacja SQLite · wersja ' + data.revision);
+  const items = document.getElementById('sync-event-list');
+  if (items) {
+    const fragment = document.createDocumentFragment();
+    for (const item of (Array.isArray(data.events) ? data.events : []).slice(0, 5)) {
+      if (!Number.isSafeInteger(item.revision) || typeof item.label !== 'string') continue;
+      const li = document.createElement('li');
+      li.textContent = 'v' + item.revision + ' · ' + item.label;
+      fragment.append(li);
+    }
+    items.replaceChildren(fragment);
+  }
+}
+
+async function refreshSyncState() {
+  try {
+    const data = await api.getSyncState();
+    displaySyncState(data);
+    return data;
+  } catch (error) {
+    setText('sync-status', 'Synchronizacja niedostępna · ' + error.message);
+    return null;
+  }
+}
+
+function renderGithubItems(items, elementId, category) {
+  const target = document.getElementById(elementId);
+  if (!target) return;
+  const fragment = document.createDocumentFragment();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (typeof item.title !== 'string' || typeof item.url !== 'string') continue;
+    const li = document.createElement('li');
+    li.className = 'github-item';
+    const a = document.createElement('a');
+    a.href = item.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = (category === 'runs' ? 'Run ' : '#') + item.number + ' · ' + item.title;
+    const label = document.createElement('small');
+    label.textContent = category === 'runs'
+      ? (item.conclusion || item.status || 'Brak wyniku')
+      : (item.draft ? 'Draft · ' : '') + (item.state || 'Nieznany');
+    li.append(a, label);
+    fragment.append(li);
+  }
+  if (!fragment.hasChildNodes()) {
+    const empty = document.createElement('li');
+    empty.textContent = 'Brak pozycji w zweryfikowanym odczycie.';
+    fragment.append(empty);
+  }
+  target.replaceChildren(fragment);
+}
+
+async function refreshGithub() {
+  setText('github-error', '');
+  setText('github-access', 'Pobieranie z GitHub API…');
+  const button = document.getElementById('github-refresh');
+  if (button) button.disabled = true;
+  try {
+    const result = await api.getGitHubStatus();
+    if (typeof result.repository !== 'string' || !Array.isArray(result.pullRequests)
+        || !Array.isArray(result.issues) || !Array.isArray(result.runs)) {
+      throw new ApiError('Nieoczekiwana odpowiedź GitHub.');
+    }
+    setText('github-repository', result.repository);
+    setText('github-access', result.githubApiReachable
+      ? (result.partial ? 'Połączony · częściowe dane' : 'Połączony · odczyt danych')
+      : 'GitHub API niedostępne');
+    const ts = new Date(result.observedAt);
+    setText('github-observed', Number.isNaN(ts.getTime()) ? 'Nieznany' : ts.toLocaleString('pl-PL'));
+    renderGithubItems(result.pullRequests, 'github-prs', 'prs');
+    renderGithubItems(result.issues, 'github-issues', 'issues');
+    renderGithubItems(result.runs, 'github-runs', 'runs');
+    setText('github-prs-count', String(result.pullRequests.length));
+    setText('github-issues-count', String(result.issues.length));
+    setText('github-runs-count', String(result.runs.length));
+    const errors = Object.entries(result.errors || {}).map(([k,v]) => k + ': ' + v);
+    if (errors.length) setText('github-error', errors.join(' · '));
+  } catch (error) {
+    setText('github-access', 'Niepołączony');
+    setText('github-error', error.message);
+    renderGithubItems([], 'github-prs', 'prs');
+    renderGithubItems([], 'github-issues', 'issues');
+    renderGithubItems([], 'github-runs', 'runs');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 let alexDispatchSupported = false;
 let activeSessionId = '';
 let activeChatController = null;
@@ -864,7 +970,7 @@ function recordHistory(sessionId, title) {
 }
 
 function showView(view) {
-  const ids = { chat: 'chat-view', work: 'work-view', 'ai-center': 'ai-center-view', codex: 'codex-view', terminal: 'terminal-view', settings: 'settings-view' };
+  const ids = { chat: 'chat-view', work: 'work-view', 'ai-center': 'ai-center-view', codex: 'codex-view', github: 'github-view', terminal: 'terminal-view', settings: 'settings-view' };
   for (const [name, id] of Object.entries(ids)) {
     const section = document.getElementById(id);
     if (section) section.hidden = name !== view;
@@ -879,7 +985,7 @@ function showView(view) {
       button.setAttribute('aria-pressed', String(active));
     }
   }
-  const titles = { chat: 'Dialog Triady', work: 'Work', 'ai-center': 'Centrum AI 24/7', codex: 'Centrum Programowania Codex', terminal: 'Terminal', settings: 'Status systemu' };
+  const titles = { chat: syncedUiTitle, work: 'Work', 'ai-center': 'Centrum AI 24/7', codex: 'Centrum Programowania Codex', github: 'GitHub · MCP', terminal: 'Terminal', settings: 'Status systemu' };
   setText('page-title', titles[view] ?? titles.chat);
 }
 
@@ -930,6 +1036,7 @@ function bindNavigation() {
       showView(button.dataset.view);
       if (button.dataset.view === 'work') void refreshWork();
       if (button.dataset.view === 'codex') void loadCodexStatus();
+      if (button.dataset.view === 'github') void refreshGithub();
       if (button.dataset.view === 'ai-center') void loadAiCenterStatus();
       setMobileSidebar(false);
     });
@@ -1152,6 +1259,9 @@ function bindChatForm() {
           if (bubble) bubble.text.textContent = answer;
           const transcript = document.getElementById('chat-transcript');
           if (transcript) transcript.scrollTop = transcript.scrollHeight;
+        } else if (kind === 'ui_update') {
+          // This is an authenticated operator command, not proof of AI inference.
+          void refreshSyncState();
         } else if (kind === 'done') {
           done = true;
           if (typeof payload.session_id === 'string') responseSession = payload.session_id;
@@ -1174,7 +1284,9 @@ function bindChatForm() {
           recordHistory(responseSession, prompt);
         }
         message.value = '';
-        feedback.textContent = 'Odpowiedź z modelu zapisana w historii Dialogu Triady.';
+        feedback.textContent = source === 'system_command'
+          ? 'Polecenie systemowe zapisane i zsynchronizowane. To nie była inferencja AI.'
+          : 'Odpowiedź z modelu zapisana w historii Dialogu Triady.';
       }
     } catch (error) {
       if (error?.name === 'AbortError') {
@@ -1286,6 +1398,21 @@ if (typeof document !== 'undefined') {
   document.getElementById('codex-refresh')?.addEventListener('click', loadCodexStatus);
   document.getElementById('ai-center-refresh')?.addEventListener('click', loadAiCenterStatus);
   document.getElementById('refresh-tasks')?.addEventListener('click', refreshWork);
+  document.getElementById('github-refresh')?.addEventListener('click', refreshGithub);
+  document.getElementById('sync-example')?.addEventListener('click', () => {
+    const textarea = document.getElementById('chat-message');
+    if (textarea) {
+      textarea.value = '/panel tytuł Moje Centrum AI';
+      textarea.focus();
+    }
+  });
+  void refreshSyncState();
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshSyncState();
+  }, 5000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void refreshSyncState();
+  });
   void refreshDashboard();
   let savedSession = '';
   try {
