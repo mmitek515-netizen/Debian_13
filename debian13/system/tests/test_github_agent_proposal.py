@@ -96,6 +96,18 @@ class GitHubAgentProposalTests(unittest.TestCase):
         with self.assertRaises(agent.ProposalError):
             agent.NoRedirect().redirect_request(None, None, 302, "", {}, "https://elsewhere.invalid")
 
+    def test_local_ollama_is_permitted_only_with_explicit_trusted_runner_opt_in(self):
+        url = "http://127.0.0.1:11434/v1/chat/completions"
+        with patch.dict(os.environ, {"DEBIAN13_TRUSTED_LOCAL_MODEL": "1"}):
+            self.assertEqual(agent.model_endpoint(url), url)
+            with self.assertRaises(agent.ProposalError):
+                agent.model_endpoint("http://evil.example:11434/v1/chat/completions")
+            with self.assertRaises(agent.ProposalError):
+                agent.model_endpoint("http://127.0.0.1:8080/v1/chat/completions")
+        with patch.dict(os.environ, {"DEBIAN13_TRUSTED_LOCAL_MODEL": "0"}):
+            with self.assertRaises(agent.ProposalError):
+                agent.model_endpoint(url)
+
     def test_existing_model_provider_can_supply_real_patch_without_openai_dependency(self):
         response = {"choices": [{"message": {"content": json.dumps(proposed_patch())}}]}
         payload = json.dumps(response).encode()
