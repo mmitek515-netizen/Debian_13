@@ -31,7 +31,7 @@ from chat_memory import ChatMemory
 import mcp_server
 from codex_status import report as codex_status_report
 from integration_progress import report as integration_progress_report
-from svl_compat import inspect_svl
+from svl_compat import inspect_svl, terminal_svl_report
 from original_agents import report as original_agents_report
 from alex_handoff import AlexHandoffError, capabilities as alex_capabilities, submit_task as submit_to_alex
 from original_agent_handoff import (
@@ -180,6 +180,16 @@ def command_argv(command: str, workspace: Path) -> list[str]:
 
 
 def run_terminal(command: str, workspace: Path) -> dict:
+    if isinstance(command, str) and command.strip():
+        try:
+            svl_parts = shlex.split(command, posix=True)
+        except ValueError:
+            raise ApiError(400, "invalid_command", "Command quoting is invalid.") from None
+        if svl_parts and svl_parts[0] == "svl":
+            if len(svl_parts) != 2 or svl_parts[1] not in {"status", "report", "profiles"}:
+                raise ApiError(400, "invalid_svl_command",
+                               "Use: svl status | svl report | svl profiles.")
+            return terminal_svl_report(workspace, svl_parts[1])
     argv = command_argv(command, workspace)
     try:
         process = subprocess.Popen(
