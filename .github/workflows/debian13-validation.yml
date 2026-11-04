@@ -202,6 +202,18 @@ jobs:
           status = json.load(urllib.request.urlopen(base + "/api/v1/status", timeout=5))
           assert status["application"]["status"] == "running"
           assert status["model"]["status"] == "not_configured"
+          # Real SVL Python state engine is reachable through the private GUI proxy.
+          svl = json.load(urllib.request.urlopen(base + "/api/v1/svl/status", timeout=5))
+          assert svl["sourceAvailable"] and svl["readOnly"]
+          assert not svl["operatingSystemBootVerified"]
+          terminal_request = urllib.request.Request(
+              base + "/api/v1/terminal", method="POST",
+              data=json.dumps({"command": "svl report"}).encode(),
+              headers={"Content-Type": "application/json"})
+          with urllib.request.urlopen(terminal_request, timeout=5) as terminal_response:
+              terminal = json.load(terminal_response)
+          assert terminal["exitCode"] == 0
+          assert "svl_python_legacy_state_engine" in terminal["output"]
           agents = json.load(urllib.request.urlopen(base + "/api/v1/agents", timeout=5))
           assert len(agents["agents"]) == 4
           assert all(agent["worker"] == "not_running" for agent in agents["agents"])
