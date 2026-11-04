@@ -120,6 +120,9 @@ export function createApiClient({ fetchImpl = globalThis.fetch, baseUrl = '' } =
     getAiCenterStatus: () => request('ai-center/status'),
     getAgents: () => request('agents'),
     getOriginalAgents: () => request('original-agents'),
+    getOriginalReviewCapabilities: () => request('original-agents/review-capabilities'),
+    handoffOriginalAgent: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/handoff`, {method: 'POST'}),
+    getOriginalJob: (taskId) => request(`tasks/${encodeURIComponent(taskId)}/original-status`),
     getGitHubStatus: () => request('github/status'),
     getSyncState: () => request('sync/state'),
     getIntegrations: () => request('integrations'),
@@ -323,7 +326,23 @@ function renderTasks(tasks) {
       reconnect.setAttribute('aria-label', `Pobierz status zadania ${task.id}`);
       reconnect.addEventListener('click', () => void refreshTaskStatus(task.id, reconnect));
       actions.append(reconnect);
-      if (task.agent === 'alex' && task.status === 'queued') {
+      if (task.originalRemoteTaskId) {
+        const inspect = document.createElement('button');
+        inspect.type = 'button';
+        inspect.className = 'task-action';
+        inspect.textContent = 'Sprawdź oryginalne AI';
+        inspect.addEventListener('click', () => void checkOriginalJob(task.id, inspect));
+        actions.append(inspect);
+      } else if (task.status === 'queued' && task.execution === 'not_started') {
+        const handoff = document.createElement('button');
+        handoff.type = 'button';
+        handoff.className = 'task-action';
+        handoff.textContent = 'Wyślij do ' + (AGENT_PROFILES.find(x => x.id === task.agent)?.name || 'AI');
+        handoff.disabled = !originalReviewSupported;
+        handoff.addEventListener('click', () => void sendToOriginalAgent(task.id, handoff));
+        actions.append(handoff);
+      }
+      if (task.agent === 'alex' && task.status === 'queued' && !task.originalRemoteTaskId) {
         const dispatch = document.createElement('button');
         dispatch.type = 'button';
         dispatch.className = 'task-action task-dispatch';
@@ -562,6 +581,7 @@ async function refreshGithub() {
 }
 
 let alexDispatchSupported = false;
+let originalReviewSupported = false;
 let activeSessionId = '';
 let activeChatController = null;
 let activeChatTaskId = '';
@@ -788,6 +808,72 @@ async function refreshAlexCapabilities() {
   return alexDispatchSupported;
 }
 
+async function refreshOriginalReviewCapabilities() {
+  originalReviewSupported = false;
+  try {
+    const response = await api.getOriginalReviewCapabilities();
+    const state = response.originalAgents;
+    originalReviewSupported = state?.supported === true && state?.allowed === true;
+    setText('original-review-state', originalReviewSupported
+      ? 'API oryginalnych AI potwierdziło zgodny protokół kolejki Ollama. To nie dowodzi wykonania zadania.'
+      : 'Wysyłanie do oryginalnych AI nieaktywne. Wymaga włączenia opt-in i zgodnego źródła.');
+  } catch (error) {
+    setText('original-review-state', 'Oryginalne AI niedostępne: ' + error.message);
+  }
+  return originalReviewSupported;
+}
+
+async function sendToOriginalAgent(taskId, button) {
+  if (!originalReviewSupported || button.disabled) return;
+  if (!window.confirm(
+    'Przekazać zadanie do oryginalnego AI Studio? To zlecenie analizy przez Ollamę, nie zapis kodu, nie zakup i nie automatyczny PR.'
+  )) return;
+  button.disabled = true;
+  try {
+    const data = await api.handoffOriginalAgent(taskId);
+    if (!data.originalSubmission || data.executionStarted !== false) {
+      throw new ApiError('Źródło nie potwierdziło przyjęcia zadania.');
+    }
+    setText('work-connection-state', 'Źródło AI przyjęło zadanie. Wynik sprawdzisz przyciskiem „Sprawdź oryginalne AI”.');
+    await refreshWork();
+  } catch (error) {
+    setText('tasks-error', error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function checkOriginalJob(taskId, button) {
+  button.disabled = true;
+  try {
+    const response = await api.getOriginalJob(taskId);
+    const result = response.originalJob;
+    if (!result || typeof result.status !== 'string') {
+      throw new ApiError('Brak zweryfikowanego statusu oryginalnego AI.');
+    }
+    const item = button.closest('[data-task-id]');
+    const state = item?.querySelector('.task-state');
+    if (state) state.textContent = 'Oryginalne AI: ' + result.status
+      + (result.agentExecutionVerified ? ' · model odpowiedział' : ' · bez dowodu ukończenia');
+    const previous = item?.querySelector('.original-ai-result');
+    previous?.remove();
+    if (result.agentExecutionVerified && typeof result.result === 'string') {
+      const report = document.createElement('pre');
+      report.className = 'original-ai-result';
+      report.textContent = result.result;
+      item?.append(report);
+    }
+    setText('work-connection-state',
+      result.agentExecutionVerified
+        ? 'Zweryfikowano zapis odpowiedzi modelu. To nadal NIE potwierdza zmian w GitHub.'
+        : 'Zdalny status: ' + result.status + '. Nie potwierdzono wykonania przez model.');
+  } catch (error) {
+    setText('tasks-error', error.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function dispatchWorkToAlex(taskId, button) {
   if (!alexDispatchSupported || button.disabled) return;
   const approved = window.confirm(
@@ -819,7 +905,9 @@ async function refreshWork() {
     button.textContent = 'Łączenie…';
   }
   setText('work-connection-state', 'Ponowne łączenie z API…');
-  const [tasksError, eventsError] = await Promise.all([loadTasks(), loadEvents(), refreshAlexCapabilities()]);
+  const [tasksError, eventsError] = await Promise.all([
+    loadTasks(), loadEvents(), refreshAlexCapabilities(), refreshOriginalReviewCapabilities(),
+  ]);
   // The buttons were initially rendered before reading actual remote capabilities.
   if (!tasksError) await loadTasks();
   const error = tasksError ?? eventsError;
