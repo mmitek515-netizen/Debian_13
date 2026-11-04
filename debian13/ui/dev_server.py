@@ -16,6 +16,7 @@ API_PATHS = {
     ("GET", "/api/v1/status"),
     ("GET", "/api/v1/agents"),
     ("GET", "/api/v1/original-agents"),
+    ("GET", "/api/v1/original-agents/review-capabilities"),
     ("GET", "/api/v1/github/status"),
     ("GET", "/api/v1/sync/state"),
     ("GET", "/api/v1/codex/status"),
@@ -32,6 +33,12 @@ API_PATHS = {
 }
 API_TASK_PATH = re.compile(
     r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+)
+API_ORIGINAL_HANDOFF_PATH = re.compile(
+    r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/handoff",
+)
+API_ORIGINAL_STATUS_PATH = re.compile(
+    r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/original-status",
 )
 API_TASK_CANCEL_PATH = re.compile(
     r"/api/v1/tasks/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/cancel",
@@ -77,9 +84,12 @@ class UiHandler(SimpleHTTPRequestHandler):
     def _proxy_api(self) -> None:
         path = urlsplit(self.path).path
         if (self.command, path) not in API_PATHS and not (
-            self.command == "GET" and (API_SESSION_PATH.fullmatch(path) or API_TASK_PATH.fullmatch(path))
+            self.command == "GET" and (API_SESSION_PATH.fullmatch(path) or API_TASK_PATH.fullmatch(path)
+                                              or API_ORIGINAL_STATUS_PATH.fullmatch(path))
         ) and not (
-            self.command == "POST" and (API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path) or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path))
+            self.command == "POST" and (API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path)
+                                               or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path)
+                                               or API_ORIGINAL_HANDOFF_PATH.fullmatch(path))
         ):
             self._send_error_json(404, "Nie znaleziono endpointu API.")
             return
@@ -90,7 +100,9 @@ class UiHandler(SimpleHTTPRequestHandler):
                 self._send_error_json(400, "Kodowanie transferu nie jest obsługiwane.")
                 return
             raw_length = self.headers.get("Content-Length", "")
-            if API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path) or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path):
+            if (API_TASK_CANCEL_PATH.fullmatch(path) or API_TASK_DISPATCH_PATH.fullmatch(path)
+                    or API_TASK_APPROVE_ANALYSIS_PATH.fullmatch(path)
+                    or API_ORIGINAL_HANDOFF_PATH.fullmatch(path)):
                 if raw_length not in ("", "0"):
                     self._send_error_json(400, "Anulowanie zadania nie przyjmuje treści.")
                     return
@@ -111,7 +123,12 @@ class UiHandler(SimpleHTTPRequestHandler):
             api_port = int(os.environ.get("DEBIAN13_API_PORT", "8765"))
             if not 1 <= api_port <= 65535:
                 raise ValueError("Invalid API port")
-            timeout = MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision") else (15 if path == "/api/v1/github/status" else 5)
+            timeout = (MAX_STREAM_SECONDS if path in (API_STREAM_PATH, "/api/v1/vision")
+                       else 15 if (path == "/api/v1/github/status"
+                                   or path == "/api/v1/original-agents/review-capabilities"
+                                   or API_ORIGINAL_HANDOFF_PATH.fullmatch(path)
+                                   or API_ORIGINAL_STATUS_PATH.fullmatch(path))
+                       else 5)
             api_host = os.environ.get("DEBIAN13_API_HOST", "127.0.0.1")
             if api_host not in ("127.0.0.1", "localhost") and not (
                 api_host == "debian13-system"
