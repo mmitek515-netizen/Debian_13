@@ -4,7 +4,8 @@
 
 Ten moduł jest proponowaną integracją na gałęzi PR #14, współpracującą
 z **PR #19** w `u6930438163-code/AI_Studio_BastillaOS`.
-Dopóki oba PR nie zostaną świadomie wdrożone oraz nie zostanie wykonany
+PR #19 został zamknięty bez scalenia; jego poprawki nie są wdrożone przez samo istnienie tej integracji.
+Dopóki zgodne wersje obu usług nie zostaną świadomie wdrożone oraz nie zostanie wykonany
 test z prawdziwym serwerem, **nie ma potwierdzonej pracy agentów**.
 
 **Nie wymaga OpenAI API ani klucza OpenAI**. Dedykowany worker źródłowy
@@ -60,3 +61,29 @@ przez AI potrzebny będzie oddzielny kontrolowany worker GitHub z testami.
 - Brak autoryzacji lub niezgodność celu repo => zatrzymanie przekazania.
 - Brak automatycznego scalenia, zakupów, shella i opłat za fallback.
 - Oryginalna czwórka startuje bez przydzielonych ról i promptów.
+
+## GitHub: oryginalni agenci zamiast profili ogólnego modelu
+
+Workflow `.github/workflows/debian13-agent-task.yml` na tej gałęzi korzysta
+z `original_agent_plan.py` i istniejącego handoffu do oryginalnego API.
+Nie tworzy person o tych samych imionach i nie wywołuje ogólnego endpointu
+OpenAI-compatible. Wybór agenta: alex, aria, astyria lub aurelius.
+Zadanie uruchamiane jest ręcznie, a analiza zapisywana jako artefakt
+`original-ai-analysis` przez 7 dni. Kod modelu nie jest wykonywany.
+
+W Settings → Secrets and variables → Actions skonfiguruj prywatnie:
+
+- `DEBIAN13_ORIGINAL_AGENTS_API_URL`: osiągalny z runnera HTTPS URL
+  oryginalnego API, zakończony `/api`;
+- `DEBIAN13_ORIGINAL_AGENTS_TOKEN`: token zgodnego źródłowego serwera.
+
+Nie przenoś tokenów do YAML ani Issue. Brak sekretów, niezgodne capability,
+błąd workera, timeout lub brak zweryfikowanej odpowiedzi zatrzymują zadanie.
+Workflow przyjmuje wyłącznie ukończony raport oznaczony `provider=ollama`.
+To kontrola odpowiedzi, nie mechanizm blokowania kosztów na zdalnym serwerze:
+wyłączenie płatnych providerów musi być wymuszone przez źródłowy worker.
+
+Przed uruchomieniem wymagane są: wdrożony zgodny oryginalny worker,
+osiągalna Ollama z modelem, skonfigurowane sekrety i dostępny manualny
+workflow na właściwej gałęzi. Plik workflow w niescalonym PR nie uruchamia
+agentów automatycznie. Obecnie nie potwierdzono żadnej produkcyjnej odpowiedzi.
