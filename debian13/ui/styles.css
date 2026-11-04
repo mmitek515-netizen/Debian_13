@@ -1398,3 +1398,44 @@ body {
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-size: 0.82rem;
 }
+
+/* Independent AI Center 24/7 */
+.ai-center-view .ai-center-diagram {
+  display: grid;
+  gap: 9px;
+  padding: 16px;
+  margin: 15px 0;
+  border: 1px solid #264364;
+  background: #060e1b;
+  border-radius: 20px;
+}
+.ai-center-step {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  text-align: center;
+  background: linear-gradient(140deg,#0c192b,#111e32);
+  border: 1px solid #263d55;
+  border-radius: 14px;
+}
+.ai-center-step > strong,
+.ai-center-heading strong { color: #e9f5ff; font-size: clamp(16px,2.5vw,21px); }
+.ai-center-step > span, .ai-center-step p { color: #a8bed7; font-size: 12px; }
+.ai-center-step-highlight { background: #14273c; border-color: #2d6482; }
+.ai-center-arrow { text-align: center; color: #89d3ff; font-size: 22px; line-height: 1; }
+.ai-center-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; text-align: left; }
+.ai-center-badge { border-radius: 99px; font-size: 11px; color: #c2d3e3; background: #26364e; padding: 6px 12px; }
+.ai-center-agents { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.ai-center-agents > div { display: grid; align-content: center; gap: 7px; min-height: 94px; padding: 14px; background: #172537; border-radius: 12px; }
+.ai-center-agents strong { color: #e9f5ff; font-size: 17px; }
+.ai-center-agents span { color: #afc2d6; font-size: 12px; }
+.ai-center-chips { display:flex;flex-wrap:wrap;justify-content:center;gap:6px; padding-top: 12px; border-top:1px solid #324255;}
+.ai-center-chips span { border-radius:99px; background:#203247; color:#c4e4f7; padding:6px 10px; font-size:12px; }
+.ai-center-step .work-limit-note { text-align: left; }
+.ai-task-result { white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow:auto; background:#071426; color:#c4ddf5; padding:12px; border-radius:9px; }
+@media (max-width: 440px) {
+  .ai-center-view .ai-center-diagram { padding: 8px; }
+  .ai-center-step { padding: 12px; }
+  .ai-center-agents { gap: 6px; }
+  .ai-center-agents > div { min-height: 84px; padding: 9px; }
+}
