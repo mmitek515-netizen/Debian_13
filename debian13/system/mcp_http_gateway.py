@@ -148,11 +148,17 @@ class MCPHandler(http.server.BaseHTTPRequestHandler):
         except (ValueError, UnicodeError):
             self._reply(400, {"error": "Invalid JSON request"})
             return
+        method = req.get("method") if isinstance(req, dict) else None
         if (not isinstance(req, dict) or req.get("jsonrpc") != "2.0"
-                or req.get("method") not in ALLOWED_METHODS):
+                or not isinstance(method, str) or method not in ALLOWED_METHODS):
             self._reply(400, {"error": "Invalid MCP request method"})
             return
-        if req["method"] == "notifications/initialized" and "id" in req:
+        if method == "tools/call":
+            params = req.get("params")
+            if not isinstance(params, dict) or not isinstance(params.get("name"), str):
+                self._reply(400, {"error": "Invalid MCP tool parameters"})
+                return
+        if method == "notifications/initialized" and "id" in req:
             self._reply(400, {"error": "Notification must not have an id"})
             return
         if req["method"] != "notifications/initialized" and "id" not in req:
