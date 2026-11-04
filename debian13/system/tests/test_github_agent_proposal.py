@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -80,6 +81,23 @@ class GitHubAgentProposalTests(unittest.TestCase):
             with self.assertRaises(agent.ProposalError):
                 agent.apply(root, proposed_patch())
             self.assertEqual(outside.read_text(), "private")
+
+
+    def test_workflow_title_prefix_selects_original_agents(self):
+        """Exercise the actual regex embedded in the opt-in GitHub workflow."""
+        workflow = (Path(__file__).resolve().parents[3] /
+                    ".github/workflows/debian13-original-agents.yml")
+        source = workflow.read_text(encoding="utf-8")
+        found = re.search(r"m=re\\.match\\(r'([^']+)'", source)
+        self.assertIsNotNone(found, "Agent prefix expression must exist.")
+        pattern = re.compile(found.group(1))
+        for name in agent.AGENTS:
+            with self.subTest(name=name):
+                match = pattern.match(f"[{name.title()}] fix Debian 13".lower())
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group(1), name)
+        self.assertIsNone(pattern.match("[unknown] something"))
+        self.assertIsNone(pattern.match("This is an [Alex] task"))
 
     def test_https_model_is_required_and_redirects_are_blocked(self):
         self.assertEqual(agent.model_endpoint("https://example.net/v1/chat/completions"),
