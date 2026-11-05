@@ -78,7 +78,8 @@ Potem:
 docker compose -f debian13/system/compose.yaml -f debian13/system/compose.ollama.yaml up -d --build
 ```
 
-Profil pobiera lekki model tekstowy `llama3.2:3b`. Duży model Vision
+Profil pobiera lekki model tekstowy `qwen2.5-coder:1.5b` (zmienny przez
+`OLLAMA_MODEL`). Duży model Vision
 **nie jest pobierany automatycznie**, aby nie blokować pierwszego startu.
 Aby jawnie włączyć jego pobieranie:
 
@@ -102,6 +103,19 @@ docker compose -f debian13/system/compose.yaml -f debian13/system/compose.ollama
 Po uruchomieniu sprawdź w przeglądarce rzeczywistą odpowiedź modelu,
 dziennik i dostępność endpointu. Wynik CI bez modelu nie jest testem
 inferencji. Nie publikuj prywatnych portów ani tokenów.
+
+Kontrola prywatnej konsoli uruchomionej przez Compose (API na porcie 8080):
+
+```bash
+DEBIAN13_API_PORT=8080 python3 debian13/system/check_priority_runtime.py --ollama-chat
+```
+
+Test przechodzi przez GUI i terminal, a następnie sprawdza lokalne MCP i po
+jednym zapytaniu tekstowym dla każdego z czterech profili czatu. Te cztery
+wiadomości i odpowiedzi zostaną zapisane w historii aplikacji. Test wstrzymuje
+zapytania do modelu, jeśli nie wykryje skonfigurowanej prywatnej Ollamy.
+Bez `--ollama-chat` nie sprawdza inferencji. Test nie potwierdza uruchomienia
+oryginalnych workerów, połączenia ChatGPT ani wykonania zadania i PR.
 
 ## Swobodny Dialog AI ↔ AI
 

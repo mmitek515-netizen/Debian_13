@@ -10,7 +10,8 @@ ten etap nie kopiuje ani nie zmienia jego plików backendu.
 
 Dla najnowszego serwera w `debian13/system/server.py` i interfejsu
 `debian13/ui` nie trzeba używać starego backendu z innego repo.
-Otwórz Codespace **dla gałęzi `migration/debian13-codespaces`** i
+Otwórz Codespace dla `mmitek515-netizen/Debian_13`, gałęzi
+`feature/dialog-triady-vision-memory` (PR #14), i
 wykonaj w terminalu repozytorium:
 
 ```bash
@@ -20,15 +21,26 @@ bash debian13/start-ai-session.sh
 Jeżeli Codespaces otworzył katalog `debian13/` jako główny, użyj
 `bash start-ai-session.sh`. Skrypt generuje prywatny token
 operatora (jeśli nie jest już ustawiony), buduje API w Dockerze, uruchamia
-Ollamę i automatycznie pobiera `llama3.2-vision:11b`, następnie
+Ollamę i automatycznie pobiera tekstowy `qwen2.5-coder:1.5b`, następnie
 uruchamia prywatny serwer interfejsu na porcie `3000`.
 W Codespaces otwórz panel **Ports** i kliknij przekierowany **prywatny** port
 `3000`. Nie zmieniaj jego widoczności na publiczną.
 
-**Zasoby:** Ollama 11B Vision pobiera około 7,8 GB danych; zalecany jest
-serwer z odpowiednią pamięcią, najlepiej GPU z min. 8 GB VRAM. Mały Codespace
-może nie mieć zasobów do uruchomienia tego modelu. Serwer nie jest uruchomiony
-przez samo dodanie skryptu do repozytorium.
+**Zasoby:** pierwszy start wymaga Dockera, pobrania obrazu i modelu, wolnego
+dysku, pamięci oraz dostępu do internetu. Na CPU odpowiedzi mogą być powolne.
+`OLLAMA_MODEL` pozwala wybrać inny model. Vision jest opcjonalne; sam zapis
+skryptu w repozytorium nie uruchamia systemu.
+
+Po starcie sprawdź GUI, terminal, lokalny protokół MCP i czat z lokalną Ollamą:
+
+```bash
+DEBIAN13_API_PORT=8080 python3 debian13/system/check_priority_runtime.py --ollama-chat
+```
+
+To tworzy cztery krótkie sesje w historii. Bez flagi `--ollama-chat` sprawdzane
+są tylko GUI, terminal i MCP. Wynik nie dowodzi pracy oryginalnych workerów ani
+zdalnego połączenia ChatGPT. Szczegóły i inne porty:
+[`docs/OLLAMA_FREE_AND_AGENT_DIALOG.md`](docs/OLLAMA_FREE_AND_AGENT_DIALOG.md).
 
 **Inny provider AI:** aby użyć zewnętrznego OpenAI-compatible API zamiast
 lokalnej Ollamy, ustaw `MODEL_CHAT_URL` (pełny adres
@@ -40,8 +52,8 @@ wskazującego model obsługujący obrazy.
 
 **Obecne ograniczenia:** odpowiedzi tekstowe trafiają z prawdziwego endpointu
 modelu do GUI przez zgodny format SSE, ale kompletna odpowiedź pojawia się po
-inferencji (bez tokenowego streamingu). Historia nie jest utrwalana, a Work
-zwraca pustą listę, dopóki niezależny system kolejkowy nie zostanie wdrożony.
+inferencji (bez tokenowego streamingu). Historia i kolejka Work są zapisywane
+w lokalnej SQLite; samo zapisanie zadania nie oznacza pracy agenta.
 Profile agentów nie są autonomicznymi workerami. Dostępność rzeczywistego
 modelu i inferencję Vision trzeba zweryfikować po uruchomieniu Codespace.
 

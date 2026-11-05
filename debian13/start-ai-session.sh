@@ -14,7 +14,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 if [[ -z "${DEBIAN13_API_TOKEN:-}" ]]; then
   umask 077
-  TOKEN_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/debian13/operator-token"
+  TOKEN_FILE="${DEBIAN13_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/debian13}/operator-token"
   mkdir -p "$(dirname "$TOKEN_FILE")"
   if [[ ! -s "$TOKEN_FILE" ]]; then
     python3 -c 'import secrets;print(secrets.token_urlsafe(48))' > "$TOKEN_FILE"
@@ -35,10 +35,11 @@ if [[ -n "${MODEL_CHAT_URL:-}" ]]; then
   echo "Text and images may be sent to the selected external model provider."
   docker compose -f compose.yaml up -d --build
 else
-  export OLLAMA_MODEL="${OLLAMA_MODEL:-llama3.2-vision:11b}"
+  # Start with a modest text model; Vision remains an explicit opt-in.
+  export OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5-coder:1.5b}"
   export OLLAMA_VISION_MODEL="${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}"
   RAM_KIB="$(awk '/MemTotal:/ {print $2}' /proc/meminfo)"
-  if [[ "$RAM_KIB" -lt 16777216 ]]; then
+  if [[ "$OLLAMA_MODEL" == "llama3.2-vision:11b" && "$RAM_KIB" -lt 16777216 ]]; then
     echo "WARNING: less than 16 GiB RAM detected. Llama Vision 11B may fail or run slowly." >&2
     echo "Choose a larger Codespace/host or set MODEL_CHAT_URL, MODEL_API_KEY and MODEL_NAME." >&2
   fi
@@ -53,11 +54,13 @@ echo "Open the Codespaces Ports tab and choose the PRIVATE forwarded port 3000."
 echo "Dialog Triady sessions and approved Ollama reports persist in SQLite."
 echo "Ollama worker restarts with Docker; permanent 24/7 requires an always-on server."
 echo "Codespaces may suspend after inactivity; keep Ports PRIVATE."
+echo "Verify local GUI, terminal and MCP: DEBIAN13_API_PORT=$DEBIAN13_API_PORT python3 $BASE/system/check_priority_runtime.py"
+echo "To check local Ollama replies from all four chat profiles, add --ollama-chat."
 # Ollama mode includes a separate persistent UI container. External-provider mode
 # retains the foreground Python UI until explicitly containerized as well.
 if [[ -z "${MODEL_CHAT_URL:-}" ]]; then
   echo "Private GUI and AI worker now run as restartable Docker services."
-  echo "Stop with: docker compose -f system/compose.yaml -f system/compose.ollama.yaml down"
+  echo "Stop from the repository root with: docker compose -f debian13/system/compose.yaml -f debian13/system/compose.ollama.yaml down"
   exit 0
 fi
 exec python3 "$BASE/ui/dev_server.py"
