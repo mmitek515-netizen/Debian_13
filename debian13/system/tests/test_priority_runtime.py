@@ -77,6 +77,7 @@ class PriorityRuntimeTests(unittest.TestCase):
                                         capture_output=True, text=True, timeout=20)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("PASS: GUI", result.stdout)
+                self.assertIn("REST and MCP reject anonymous access (401)", result.stdout)
                 self.assertIn("PASS: terminal", result.stdout)
                 self.assertIn("PASS: local authenticated MCP", result.stdout)
                 self.assertIn("Ollama inference: NOT TESTED", result.stdout)
