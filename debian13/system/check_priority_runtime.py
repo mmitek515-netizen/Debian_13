@@ -78,6 +78,21 @@ def verify_core(ui_port: int, api_port: int, token: str) -> None:
         raise CheckError("The GUI proxy did not reach the running API.")
     print("PASS: GUI -> private API")
 
+    # A reachable backend is not a safe backend unless private routes reject
+    # anonymous requests. Check both the REST API and the MCP transport.
+    status, _ = request(api_port, "GET", "/v1/diagnostics")
+    if status != 401:
+        raise CheckError("Anonymous backend diagnostics were not rejected with HTTP 401.")
+    details = json_request(api_port, "GET", "/v1/diagnostics", token=token)
+    if details.get("service") != "debian13-system":
+        raise CheckError("Authenticated backend diagnostics returned an unexpected service.")
+    status, _ = request(api_port, "POST", "/mcp", payload={
+        "jsonrpc": "2.0", "id": 0, "method": "tools/list", "params": {},
+    })
+    if status != 401:
+        raise CheckError("Anonymous MCP tools/list was not rejected with HTTP 401.")
+    print("PASS: REST and MCP reject anonymous access (401); private REST token accepted")
+
     terminal = json_request(ui_port, "POST", "/api/v1/terminal", payload={"command": "pwd"})
     if terminal.get("exitCode") != 0 or not terminal.get("output", "").strip():
         raise CheckError("The terminal did not return a successful pwd result.")
